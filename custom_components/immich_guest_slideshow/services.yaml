@@ -1,0 +1,29 @@
+refresh:
+  name: Rafraîchir le diaporama
+  description: >-
+    Vide le cache, reconstruit les recherches Immich et recharge les photos.
+    Sans paramètre, toutes les chambres sont rafraîchies.
+  fields:
+    room:
+      name: Chambre
+      description: >-
+        Identifiant de la chambre (slug du nom, ex. chambre_d_ami).
+        Optionnel : toutes les chambres si absent.
+      required: false
+      example: chambre_d_ami
+      selector:
+        text:
+
+next:
+  name: Image suivante
+  description: >-
+    Passe immédiatement à l'image suivante sans attendre la fin de
+    l'intervalle. Sans paramètre, toutes les chambres avancent.
+  fields:
+    room:
+      name: Chambre
+      description: Identifiant de la chambre (optionnel).
+      required: false
+      example: chambre_stitch
+      selector:
+        text:

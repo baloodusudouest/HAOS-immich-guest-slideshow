@@ -1,0 +1,17 @@
+{
+  "codeowners": [
+    "@baloodusudouest"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "input_text"
+  ],
+  "documentation": "https://github.com/baloodusudouest/haos-immich-guest-slideshow",
+  "domain": "immich_guest_slideshow",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/baloodusudouest/haos-immich-guest-slideshow/issues",
+  "name": "Immich Guest Slideshow",
+  "requirements": [],
+  "version": "1.0.0"
+}

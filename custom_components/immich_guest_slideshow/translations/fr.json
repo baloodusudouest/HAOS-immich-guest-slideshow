@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connexion à Immich",
+        "description": "Saisissez l'URL de votre serveur Immich et votre clé API. La clé est stockée de façon sécurisée par Home Assistant et n'est jamais écrite dans le code.",
+        "data": {
+          "url": "URL Immich",
+          "api_key": "Clé API"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de joindre le serveur Immich",
+      "invalid_auth": "Clé API invalide",
+      "unknown": "Erreur inattendue"
+    },
+    "abort": {
+      "already_configured": "Ce serveur Immich est déjà configuré"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Immich Guest Slideshow",
+        "menu_options": {
+          "general": "Réglages généraux",
+          "add_room": "Ajouter une chambre",
+          "remove_room": "Supprimer des chambres"
+        }
+      },
+      "general": {
+        "title": "Réglages du diaporama",
+        "data": {
+          "interval": "Secondes entre deux images",
+          "cache_size": "Nombre max de photos en cache par chambre",
+          "rebuild_hours": "Rafraîchissement du cache en heures (0 = désactivé)",
+          "permanent_persons": "Personnes permanentes (séparées par des virgules)"
+        }
+      },
+      "add_room": {
+        "title": "Ajouter une chambre",
+        "data": {
+          "name": "Nom de la chambre",
+          "helpers": "Helpers invités (input_text)"
+        }
+      },
+      "remove_room": {
+        "title": "Supprimer des chambres",
+        "data": {
+          "rooms": "Chambres à supprimer"
+        }
+      }
+    },
+    "error": {
+      "invalid_name": "Nom de chambre invalide",
+      "room_exists": "Une chambre portant ce nom existe déjà",
+      "no_helpers": "Sélectionnez au moins un helper input_text"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_search": {
+        "name": "Recherche courante"
+      }
+    }
+  }
+}

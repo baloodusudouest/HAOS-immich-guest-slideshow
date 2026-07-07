@@ -1,0 +1,27 @@
+# Changelog
+
+## 1.0.0 — 2026-07-07
+
+### V0.3 → V1.0
+- Chambres configurables via l'interface (options) : ajout/suppression avec
+  sélecteur d'entités `input_text` ; les trois chambres historiques restent
+  les valeurs par défaut.
+- Nouveau service `immich_guest_slideshow.next` (image suivante immédiate).
+- Nettoyage automatique des appareils des chambres supprimées.
+- CI GitHub Actions : hassfest, validation HACS, pytest + couverture.
+- Tests supplémentaires : pagination API, flux d'options.
+
+### V0.2
+- Pagination des recherches Immich (`assets.nextPage`), limite de 400 photos
+  par recherche.
+- Rafraîchissement périodique du cache (option `rebuild_hours`, défaut 6 h)
+  pour intégrer les nouvelles photos sans redémarrage.
+
+### V0.1
+- Config Flow (URL + clé API) avec validation de connexion.
+- Client API aiohttp typé (personnes, recherches multi-personnes, thumbnails).
+- Moteur de diaporama par chambre : combinaisons invités/permanents
+  (3 ou 9 recherches), cache local, rotation aléatoire sans doublon immédiat.
+- Entités `image.immich_<chambre>` et `sensor.immich_<chambre>_current_search`.
+- Rebuild automatique à chaque changement d'un helper `input_text`.
+- Service `refresh`, diagnostics, traductions fr/en, compatibilité HACS.
