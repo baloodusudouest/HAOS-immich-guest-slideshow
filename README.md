@@ -1,8 +1,10 @@
 # HAOS-immich-guest-slideshow
 
-Diaporama intelligent basé sur [Immich](https://immich.app), intégré à Home Assistant,
-avec une logique de sélection de photos différente pour chaque chambre en fonction
-des invités présents.
+> Diaporama photo Immich par chambre pour Home Assistant, adapté automatiquement aux invités présents.
+
+Intégration HACS basée sur [Immich](https://immich.app) : chaque chambre affiche
+un diaporama de photos combinant ses invités (helpers `input_text`) et les
+propriétaires, avec cache local et rotation aléatoire.
 
 ## Fonctionnement
 
@@ -24,6 +26,10 @@ Les chambres sont entièrement configurables depuis l'interface ; par défaut :
 - **Un invité (I1)** → 3 recherches : `I1+P1`, `I1+P2`, `I1+P1+P2`.
 - **Deux invités (I1, I2)** → 9 recherches : les 3 combos de I1, les 3 combos
   de I2, puis `I1+I2+P1`, `I1+I2+P2`, `I1+I2+P1+P2`.
+
+**Repli automatique** : si un invité n'a aucune photo en commun avec les
+propriétaires, ses photos individuelles sont affichées à la place (le sensor
+indique alors uniquement son nom comme recherche courante).
 
 Les photos de toutes les recherches sont dédupliquées puis mises en **cache
 local** ; la rotation est **aléatoire sans doublon immédiat** et n'interroge

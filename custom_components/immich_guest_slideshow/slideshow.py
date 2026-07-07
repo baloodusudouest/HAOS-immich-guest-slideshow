@@ -133,6 +133,7 @@ class SlideshowEngine:
             return
 
         photos: list[CachedPhoto] = []
+        guest_hits: dict[str, int] = {guest: 0 for guest in guests}
         for combo in self.combos:
             try:
                 ids = [await self._resolve_person_id(n) for n in combo.names]
@@ -150,10 +151,46 @@ class SlideshowEngine:
                     err,
                 )
                 continue
+            for guest in guests:
+                if guest in combo.names:
+                    guest_hits[guest] += len(assets)
             photos.extend(
                 CachedPhoto(asset_id=a["id"], search_label=combo.label)
                 for a in assets
             )
+
+        # Repli : un invité sans aucune photo avec les propriétaires
+        # bascule sur ses photos individuelles.
+        for guest in guests:
+            if guest_hits[guest] > 0:
+                continue
+            fallback = SearchCombo((guest,))
+            try:
+                pid = await self._resolve_person_id(guest)
+                if pid is None:
+                    continue
+                assets = await self._api.async_search_assets(
+                    [pid], limit=MAX_ASSETS_PER_SEARCH
+                )
+            except ImmichApiError as err:
+                _LOGGER.warning(
+                    "[%s] Repli '%s' en échec: %s", self.room_id, guest, err
+                )
+                continue
+            if assets:
+                _LOGGER.info(
+                    "[%s] Aucune photo de '%s' avec les propriétaires: "
+                    "repli sur ses %d photo(s) individuelles",
+                    self.room_id,
+                    guest,
+                    len(assets),
+                )
+                self.combos.append(fallback)
+                photos.extend(
+                    CachedPhoto(asset_id=a["id"], search_label=fallback.label)
+                    for a in assets
+                )
+
         self._cache.replace(photos)
         _LOGGER.debug(
             "[%s] Cache reconstruit: %d photo(s) via %d recherche(s)",

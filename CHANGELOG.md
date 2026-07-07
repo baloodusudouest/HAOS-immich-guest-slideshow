@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0 — 2026-07-08
+
+- Repli automatique par invité : si aucune photo ne combine un invité avec
+  les propriétaires, ses photos individuelles sont utilisées à la place.
+- Tests dédiés au mécanisme de repli.
+
 ## 1.0.0 — 2026-07-07
 
 ### V0.3 → V1.0
