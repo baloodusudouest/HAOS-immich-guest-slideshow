@@ -1,0 +1,68 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Immich",
+        "description": "Enter your Immich server URL and API key. The key is stored securely by Home Assistant and never written to the code.",
+        "data": {
+          "url": "Immich URL",
+          "api_key": "API key"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to reach the Immich server",
+      "invalid_auth": "Invalid API key",
+      "unknown": "Unexpected error"
+    },
+    "abort": {
+      "already_configured": "This Immich server is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Immich Guest Slideshow",
+        "menu_options": {
+          "general": "General settings",
+          "add_room": "Add a room",
+          "remove_room": "Remove rooms"
+        }
+      },
+      "general": {
+        "title": "Slideshow settings",
+        "data": {
+          "interval": "Seconds between two images",
+          "cache_size": "Max photos cached per room",
+          "rebuild_hours": "Cache refresh interval in hours (0 = disabled)",
+          "permanent_persons": "Permanent persons (comma separated)"
+        }
+      },
+      "add_room": {
+        "title": "Add a room",
+        "data": {
+          "name": "Room name",
+          "helpers": "Guest helpers (input_text)"
+        }
+      },
+      "remove_room": {
+        "title": "Remove rooms",
+        "data": {
+          "rooms": "Rooms to remove"
+        }
+      }
+    },
+    "error": {
+      "invalid_name": "Invalid room name",
+      "room_exists": "A room with this name already exists",
+      "no_helpers": "Select at least one input_text helper"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "current_search": {
+        "name": "Current search"
+      }
+    }
+  }
+}
