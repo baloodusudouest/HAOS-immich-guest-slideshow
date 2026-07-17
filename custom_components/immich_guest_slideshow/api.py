@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import unicodedata
 from typing import Any
 
 import aiohttp
@@ -14,6 +15,30 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
+
+def normalize_name(value: str) -> str:
+    """Normalise un nom en forme NFC, sans espaces superflus.
+
+    Les noms saisis depuis iOS/macOS arrivent souvent en forme NFD
+    (« é » = « e » + accent combinant) alors qu'Immich stocke en NFC.
+    Sans cette normalisation, « Chloé » (NFD) != « Chloé » (NFC).
+    """
+    return unicodedata.normalize("NFC", value).strip()
+
+
+def _fold(value: str) -> str:
+    """Clé de comparaison insensible à la casse (mais accents conservés)."""
+    return normalize_name(value).casefold()
+
+
+def _fold_no_accents(value: str) -> str:
+    """Clé de comparaison insensible à la casse ET aux accents.
+
+    Permet à « Chloe » de correspondre à « Chloé » en dernier recours.
+    """
+    decomposed = unicodedata.normalize("NFD", _fold(value))
+    return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
 class ImmichApiError(Exception):
@@ -95,21 +120,56 @@ class ImmichApiClient:
         await self._request("GET", "/api/server/ping")
         return await self._request("GET", "/api/server/about")
 
+    async def _search_person_raw(self, name: str) -> list[dict[str, Any]]:
+        """Interroge /api/search/person et retourne la liste brute."""
+        results = await self._request(
+            "GET", "/api/search/person", params={"name": name}
+        )
+        return results or []
+
     async def async_find_person(self, full_name: str) -> dict[str, Any] | None:
-        """Recherche une personne par son nom complet (insensible à la casse).
+        """Recherche une personne par son nom complet.
+
+        La comparaison est insensible à la casse et robuste aux accents :
+
+        1. Le nom est normalisé en NFC avant l'appel API (les saisies iOS
+           arrivent en NFD et ne matchent sinon jamais côté Immich).
+        2. Correspondance exacte (NFC + casefold).
+        3. Correspondance sans accents (« Chloe » ↔ « Chloé »).
+        4. Si la recherche accentuée ne renvoie rien, nouvel essai avec le
+           nom désaccentué (l'index de recherche Immich peut être strict).
+        5. Repli final : premier résultat approchant.
 
         Returns:
             Le dictionnaire de la personne Immich, ou ``None`` si introuvable.
         """
-        results: list[dict[str, Any]] = await self._request(
-            "GET", "/api/search/person", params={"name": full_name}
-        )
-        wanted = full_name.strip().casefold()
-        for person in results or []:
-            if str(person.get("name", "")).strip().casefold() == wanted:
+        query = normalize_name(full_name)
+        results = await self._search_person_raw(query)
+
+        # Nouvel essai sans accents si la recherche stricte ne donne rien.
+        folded_query = _fold_no_accents(query)
+        if not results and folded_query != _fold(query):
+            _LOGGER.debug(
+                "Recherche Immich vide pour '%s', nouvel essai sans accents", query
+            )
+            results = await self._search_person_raw(folded_query)
+
+        if not results:
+            return None
+
+        wanted = _fold(query)
+        wanted_no_accents = folded_query
+
+        # 1) Correspondance exacte (accents inclus)
+        for person in results:
+            if _fold(str(person.get("name", ""))) == wanted:
                 return person
-        # Repli : premier résultat approchant
-        return results[0] if results else None
+        # 2) Correspondance insensible aux accents
+        for person in results:
+            if _fold_no_accents(str(person.get("name", ""))) == wanted_no_accents:
+                return person
+        # 3) Repli : premier résultat approchant
+        return results[0]
 
     async def async_search_assets(
         self,
