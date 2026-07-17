@@ -1,4 +1,9 @@
 # Changelog
+
+## 1.2.1 — 2026-07-17
+
+- Correction : extraction du nom d'invité depuis le helper (suffixe de dates ignoré) et normalisation Unicode NFC/NFD des noms accentués
+
 ## 1.2.0 — 2026-07-17
 
 -Changement pour pouvoir avoir utiliser des prénoms et noms avec des accents
