@@ -6,6 +6,7 @@ remplit le cache local et fournit la photo suivante à afficher.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from homeassistant.core import HomeAssistant
@@ -17,6 +18,20 @@ from .const import MAX_ASSETS_PER_SEARCH
 _LOGGER = logging.getLogger(__name__)
 
 _EMPTY_STATES = {"", "unknown", "unavailable", "none"}
+
+# Suffixe de réservation ajouté par la carte de réservation dans les helpers,
+# ex. « Jérémy Jouet (2026-07-17 → 2026-07-18) ». Seul le nom doit être
+# envoyé à Immich : on retire tout groupe entre parenthèses en fin de chaîne.
+_RESERVATION_SUFFIX = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def extract_guest_name(value: str) -> str:
+    """Extrait le nom de l'invité depuis la valeur brute du helper.
+
+    « Jérémy Jouet (2026-07-17 → 2026-07-18) » -> « Jérémy Jouet ».
+    Une valeur sans parenthèses est retournée telle quelle.
+    """
+    return _RESERVATION_SUFFIX.sub("", value).strip()
 
 
 @dataclass(frozen=True)
@@ -96,16 +111,19 @@ class SlideshowEngine:
     def get_guests(self) -> list[str]:
         """Lit les invités depuis les helpers input_text de la chambre.
 
-        Les noms sont normalisés en NFC : un « é » saisi sur iPhone/iPad
-        arrive en forme décomposée (NFD) et ne correspondrait sinon jamais
-        aux noms stockés par Immich.
+        Deux nettoyages sont appliqués :
+        - suppression du suffixe de réservation « (date → date) » ajouté
+          par la carte de réservation, pour n'envoyer que le nom à Immich ;
+        - normalisation NFC : un « é » saisi sur iPhone/iPad arrive en forme
+          décomposée (NFD) et ne correspondrait sinon jamais aux noms
+          stockés par Immich.
         """
         guests: list[str] = []
         for entity_id in self.helpers:
             state = self._hass.states.get(entity_id)
             if state is None:
                 continue
-            value = normalize_name(state.state)
+            value = normalize_name(extract_guest_name(state.state))
             if value.casefold() not in _EMPTY_STATES:
                 guests.append(value)
         return guests
