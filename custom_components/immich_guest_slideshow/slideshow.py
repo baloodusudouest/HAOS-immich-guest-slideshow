@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from homeassistant.core import HomeAssistant
 
-from .api import ImmichApiClient, ImmichApiError
+from .api import ImmichApiClient, ImmichApiError, normalize_name
 from .cache import CachedPhoto, PhotoCache
 from .const import MAX_ASSETS_PER_SEARCH
 
@@ -82,7 +82,9 @@ class SlideshowEngine:
         self.room_id = room_id
         self.room_name = room_name
         self.helpers = helpers
-        self._permanents = permanents
+        # Normalisation NFC des permanents dès l'init : les noms saisis
+        # dans le Config Flow depuis iOS/macOS peuvent arriver en NFD.
+        self._permanents = [normalize_name(p) for p in permanents if p]
         self._cache = PhotoCache(max_size=cache_size)
         self._person_ids: dict[str, str | None] = {}
         self.current: CachedPhoto | None = None
@@ -92,13 +94,18 @@ class SlideshowEngine:
     # Lecture des helpers
     # ------------------------------------------------------------------ #
     def get_guests(self) -> list[str]:
-        """Lit les invités depuis les helpers input_text de la chambre."""
+        """Lit les invités depuis les helpers input_text de la chambre.
+
+        Les noms sont normalisés en NFC : un « é » saisi sur iPhone/iPad
+        arrive en forme décomposée (NFD) et ne correspondrait sinon jamais
+        aux noms stockés par Immich.
+        """
         guests: list[str] = []
         for entity_id in self.helpers:
             state = self._hass.states.get(entity_id)
             if state is None:
                 continue
-            value = state.state.strip()
+            value = normalize_name(state.state)
             if value.casefold() not in _EMPTY_STATES:
                 guests.append(value)
         return guests
