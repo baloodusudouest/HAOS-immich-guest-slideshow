@@ -1,4 +1,7 @@
 # Changelog
+## 1.2.0 — 2026-07-17
+
+-Changement pour pouvoir avoir utiliser des prénoms et noms avec des accents
 
 ## 1.1.0 — 2026-07-08
 
