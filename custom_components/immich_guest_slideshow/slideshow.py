@@ -385,23 +385,26 @@ class SlideshowEngine:
             # disjointes. Un simple décalage d'indice ne suffirait pas — avec
             # un pas d'échantillonnage régulier il retomberait sur les mêmes
             # photos.
-            pool = await self._async_assets_for_guest(next(iter(distinct)))
+            guest = next(iter(distinct))
+            pool = await self._async_assets_for_guest(guest)
             random.shuffle(pool)
-            slots = [i for i, g in enumerate(beds) if g] or [0]
-            if len(pool) >= size * len(slots):
+            # On découpe sur le nombre de LITS, pas sur le nombre de lits
+            # occupés : un invité seul dans une chambre à deux cadres doit
+            # alimenter les deux, avec des photos différentes. Compter les
+            # occupants ne produisait qu'un seul album.
+            n_slots = len(beds)
+            if len(pool) >= size * n_slots:
                 tranches = [
-                    pool[i * size:(i + 1) * size] for i in range(len(slots))
+                    pool[i * size:(i + 1) * size] for i in range(n_slots)
                 ]
             else:
-                step = max(1, len(pool) // max(1, len(slots)))
+                step = max(1, len(pool) // max(1, n_slots))
                 tranches = [
-                    pool[i * step:(i + 1) * step] for i in range(len(slots))
+                    pool[i * step:(i + 1) * step] for i in range(n_slots)
                 ]
-            for index, tranche in zip(range(len(beds)), tranches):
+            for index, tranche in enumerate(tranches):
                 results.append(
-                    await self._async_upsert_album(
-                        index, beds[slots[0]], tranche
-                    )
+                    await self._async_upsert_album(index, guest, tranche)
                 )
             return results
 
