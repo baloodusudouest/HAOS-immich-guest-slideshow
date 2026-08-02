@@ -1,4 +1,11 @@
 # Changelog
+
+## 1.3.1 — 2026-08-02
+
+- Correction : dans une chambre à plusieurs lits occupée par une seule
+  personne, un seul album était créé au lieu d'un par lit. Le découpage
+  comptait les lits occupés au lieu des lits existants.
+  
 ## 1.3.0 — 2026-08-02
 
 ### Synchronisation d'albums Immich
