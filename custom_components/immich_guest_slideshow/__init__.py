@@ -12,7 +12,13 @@ import voluptuous as vol
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import Event, HomeAssistant, ServiceCall
+from homeassistant.core import (
+    Event,
+    HomeAssistant,
+    ServiceCall,
+    ServiceResponse,
+    SupportsResponse,
+)
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
@@ -25,6 +31,7 @@ from homeassistant.helpers.event import (
 from .api import ImmichApiClient, ImmichApiError
 from .const import (
     ATTR_ROOM,
+    ATTR_SIZE,
     CONF_API_KEY,
     CONF_CACHE_SIZE,
     CONF_INTERVAL,
@@ -32,6 +39,7 @@ from .const import (
     CONF_REBUILD_HOURS,
     CONF_ROOMS,
     CONF_URL,
+    DEFAULT_ALBUM_SIZE,
     DEFAULT_CACHE_SIZE,
     DEFAULT_INTERVAL,
     DEFAULT_PERMANENT_PERSONS,
@@ -40,8 +48,10 @@ from .const import (
     DOMAIN,
     KEY_HELPERS,
     KEY_NAME,
+    MAX_ALBUM_SIZE,
     SERVICE_NEXT,
     SERVICE_REFRESH,
+    SERVICE_SYNC_ALBUMS,
 )
 from .coordinator import RoomCoordinator
 from .slideshow import SlideshowEngine
@@ -145,12 +155,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         for coordinator in targets:
             await coordinator.async_refresh()
 
+    async def _handle_sync_albums(call: ServiceCall) -> ServiceResponse:
+        """Service immich_guest_slideshow.sync_albums.
+
+        Crée ou met à jour un album Immich par lit occupé, pour alimenter un
+        cadre photo qui ne sait pas recevoir d'image automatiquement. Retourne
+        le détail des albums touchés afin qu'une automatisation puisse le
+        notifier.
+        """
+        room = call.data.get(ATTR_ROOM)
+        size = int(call.data.get(ATTR_SIZE, DEFAULT_ALBUM_SIZE))
+        targets = (
+            [runtime.coordinators[room]]
+            if room and room in runtime.coordinators
+            else list(runtime.coordinators.values())
+        )
+        albums: list[dict] = []
+        for coordinator in targets:
+            albums.extend(await coordinator.engine.async_sync_albums(size))
+        return {"albums": albums}
+
     service_schema = vol.Schema({vol.Optional(ATTR_ROOM): cv.string})
     hass.services.async_register(
         DOMAIN, SERVICE_REFRESH, _handle_refresh, schema=service_schema
     )
     hass.services.async_register(
         DOMAIN, SERVICE_NEXT, _handle_next, schema=service_schema
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SYNC_ALBUMS,
+        _handle_sync_albums,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_ROOM): cv.string,
+                vol.Optional(ATTR_SIZE, default=DEFAULT_ALBUM_SIZE): vol.All(
+                    vol.Coerce(int), vol.Range(min=1, max=MAX_ALBUM_SIZE)
+                ),
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
     )
 
     # Recharger si les options changent
@@ -180,7 +224,7 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
 
 async def async_unload_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bool:
     """Décharge la config entry."""
-    for service in (SERVICE_REFRESH, SERVICE_NEXT):
+    for service in (SERVICE_REFRESH, SERVICE_NEXT, SERVICE_SYNC_ALBUMS):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
