@@ -27,3 +27,34 @@ next:
       example: chambre_stitch
       selector:
         text:
+
+sync_albums:
+  name: Synchroniser les albums Immich
+  description: >-
+    Crée ou met à jour un album Immich par lit occupé, contenant un
+    échantillon aléatoire des photos de son occupant. Sert à alimenter un
+    cadre photo qui ne sait pas recevoir d'image automatiquement : il suffit
+    de télécharger l'album depuis l'app Immich puis de l'envoyer au cadre.
+    Sans paramètre, toutes les chambres sont traitées.
+  fields:
+    room:
+      name: Chambre
+      description: >-
+        Identifiant de la chambre (slug du nom, ex. chambre_d_ami).
+        Optionnel : toutes les chambres si absent.
+      required: false
+      example: chambre_d_ami
+      selector:
+        text:
+    size:
+      name: Photos par album
+      description: Nombre de photos placées dans chaque album.
+      required: false
+      default: 50
+      example: 50
+      selector:
+        number:
+          min: 1
+          max: 500
+          step: 5
+          mode: box

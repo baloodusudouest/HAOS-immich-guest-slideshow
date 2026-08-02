@@ -6,6 +6,7 @@ remplit le cache local et fournit la photo suivante à afficher.
 from __future__ import annotations
 
 import logging
+import random
 import re
 from dataclasses import dataclass
 
@@ -13,7 +14,7 @@ from homeassistant.core import HomeAssistant
 
 from .api import ImmichApiClient, ImmichApiError, normalize_name
 from .cache import CachedPhoto, PhotoCache
-from .const import MAX_ASSETS_PER_SEARCH
+from .const import ALBUM_PREFIX, MAX_ASSETS_PER_SEARCH
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -128,6 +129,23 @@ class SlideshowEngine:
                 guests.append(value)
         return guests
 
+    def get_guests_by_bed(self) -> list[str | None]:
+        """Invités par lit, dans l'ordre des helpers, ``None`` si vide.
+
+        ``get_guests()`` compacte la liste et perd l'indice : impossible d'en
+        déduire quel lit est occupé. Cette variante le conserve, ce dont les
+        albums ont besoin pour associer un lit à un cadre photo.
+        """
+        beds: list[str | None] = []
+        for entity_id in self.helpers:
+            state = self._hass.states.get(entity_id)
+            if state is None:
+                beds.append(None)
+                continue
+            value = normalize_name(extract_guest_name(state.state))
+            beds.append(None if value.casefold() in _EMPTY_STATES else value)
+        return beds
+
     # ------------------------------------------------------------------ #
     # Résolution des personnes et remplissage du cache
     # ------------------------------------------------------------------ #
@@ -223,6 +241,179 @@ class SlideshowEngine:
             len(self._cache),
             len(self.combos),
         )
+
+    # ------------------------------------------------------------------ #
+    # Albums Immich
+    # ------------------------------------------------------------------ #
+    async def _async_assets_for_guest(self, guest: str) -> list[str]:
+        """Identifiants d'assets pour UN invité, avec la même cascade que le
+        diaporama : combinaisons avec les permanents, puis repli sur ses
+        photos individuelles.
+
+        Volontairement séparé de ``async_rebuild``, qui fusionne tous les
+        invités d'une chambre dans un cache unique. Les albums, eux, doivent
+        rester distincts par lit.
+        """
+        found: set[str] = set()
+        for combo in build_search_combos([guest], self._permanents):
+            try:
+                ids = [await self._resolve_person_id(n) for n in combo.names]
+                if any(pid is None for pid in ids):
+                    continue
+                assets = await self._api.async_search_assets(
+                    [pid for pid in ids if pid], limit=MAX_ASSETS_PER_SEARCH
+                )
+            except ImmichApiError as err:
+                _LOGGER.warning(
+                    "[%s] Recherche album '%s' en échec: %s",
+                    self.room_id,
+                    combo.label,
+                    err,
+                )
+                continue
+            found.update(a["id"] for a in assets if a.get("id"))
+
+        if found:
+            return sorted(found)
+
+        # Repli : aucune photo avec les permanents (première visite).
+        try:
+            pid = await self._resolve_person_id(guest)
+            if pid is None:
+                return []
+            assets = await self._api.async_search_assets(
+                [pid], limit=MAX_ASSETS_PER_SEARCH
+            )
+        except ImmichApiError as err:
+            _LOGGER.warning("[%s] Repli album '%s': %s", self.room_id, guest, err)
+            return []
+        return sorted({a["id"] for a in assets if a.get("id")})
+
+    def _album_name(self, index: int, guest: str | None) -> str:
+        """« PicPak Chambre d'ami 1 — Alice »."""
+        base = f"{ALBUM_PREFIX} {self.room_name} {index + 1}"
+        return f"{base} — {guest}" if guest else base
+
+    def _album_base_name(self, index: int) -> str:
+        """Préfixe stable, utilisé pour retrouver l'album malgré le renommage."""
+        return f"{ALBUM_PREFIX} {self.room_name} {index + 1}"
+
+    async def _async_upsert_album(
+        self, index: int, guest: str | None, asset_ids: list[str]
+    ) -> dict:
+        """Crée ou met à jour l'album du lit ``index`` avec exactement
+        ``asset_ids``.
+
+        L'album est retrouvé par son préfixe et non par son nom complet :
+        celui-ci porte le nom de l'invité précédent et change à chaque
+        réservation. Sans ça, on créerait un album de plus à chaque fois.
+        """
+        base = self._album_base_name(index)
+        wanted_name = self._album_name(index, guest)
+        album_id: str | None = None
+
+        try:
+            for album in await self._api.async_list_albums():
+                if str(album.get("albumName", "")).startswith(base):
+                    album_id = album.get("id")
+                    break
+        except ImmichApiError as err:
+            _LOGGER.warning("[%s] Liste des albums en échec: %s", self.room_id, err)
+            return {"bed": index + 1, "guest": guest, "ok": False, "photos": 0}
+
+        try:
+            if album_id is None:
+                album_id = await self._api.async_create_album(
+                    wanted_name, asset_ids
+                )
+            else:
+                # Retirer AVANT d'ajouter : l'ordre inverse ferait transiter
+                # l'album par un état contenant l'ancien et le nouveau
+                # contenu, et un téléchargement lancé à cet instant
+                # récupérerait les deux.
+                current = await self._api.async_album_asset_ids(album_id)
+                obsolete = [a for a in current if a not in set(asset_ids)]
+                await self._api.async_remove_album_assets(album_id, obsolete)
+                await self._api.async_add_album_assets(
+                    album_id, [a for a in asset_ids if a not in set(current)]
+                )
+                await self._api.async_rename_album(album_id, wanted_name)
+        except ImmichApiError as err:
+            _LOGGER.error(
+                "[%s] Synchronisation de l'album '%s' en échec: %s",
+                self.room_id,
+                wanted_name,
+                err,
+            )
+            return {"bed": index + 1, "guest": guest, "ok": False, "photos": 0}
+
+        _LOGGER.info(
+            "[%s] Album '%s' synchronisé: %d photo(s)",
+            self.room_id,
+            wanted_name,
+            len(asset_ids),
+        )
+        return {
+            "bed": index + 1,
+            "guest": guest,
+            "album": wanted_name,
+            "album_id": album_id,
+            "photos": len(asset_ids),
+            "ok": True,
+        }
+
+    async def async_sync_albums(self, size: int) -> list[dict]:
+        """Synchronise un album Immich par lit occupé.
+
+        - Deux invités : chaque lit reçoit les photos de son occupant.
+        - Un seul invité, deux lits : les deux albums puisent dans le même
+          ensemble, mais sur des tranches DISJOINTES après mélange, pour que
+          les deux cadres n'affichent jamais la même photo au même moment.
+        - Lit vide : album laissé intact.
+        """
+        beds = self.get_guests_by_bed()
+        occupied = [g for g in beds if g]
+        if not occupied:
+            _LOGGER.debug("[%s] Aucun invité: albums inchangés", self.room_id)
+            return []
+
+        results: list[dict] = []
+        distinct = {g for g in occupied}
+
+        if len(distinct) == 1 and len(beds) > 1:
+            # Occupant unique : on mélange puis on découpe en tranches
+            # disjointes. Un simple décalage d'indice ne suffirait pas — avec
+            # un pas d'échantillonnage régulier il retomberait sur les mêmes
+            # photos.
+            pool = await self._async_assets_for_guest(next(iter(distinct)))
+            random.shuffle(pool)
+            slots = [i for i, g in enumerate(beds) if g] or [0]
+            if len(pool) >= size * len(slots):
+                tranches = [
+                    pool[i * size:(i + 1) * size] for i in range(len(slots))
+                ]
+            else:
+                step = max(1, len(pool) // max(1, len(slots)))
+                tranches = [
+                    pool[i * step:(i + 1) * step] for i in range(len(slots))
+                ]
+            for index, tranche in zip(range(len(beds)), tranches):
+                results.append(
+                    await self._async_upsert_album(
+                        index, beds[slots[0]], tranche
+                    )
+                )
+            return results
+
+        for index, guest in enumerate(beds):
+            if not guest:
+                continue
+            pool = await self._async_assets_for_guest(guest)
+            random.shuffle(pool)
+            results.append(
+                await self._async_upsert_album(index, guest, pool[:size])
+            )
+        return results
 
     # ------------------------------------------------------------------ #
     # Rotation

@@ -200,6 +200,86 @@ class ImmichApiClient:
             page = int(next_page) if next_page else None
         return items[:limit]
 
+    # ------------------------------------------------------------------ #
+    # Albums
+    # ------------------------------------------------------------------ #
+    async def async_list_albums(self) -> list[dict[str, Any]]:
+        """Retourne tous les albums (sans leurs assets)."""
+        return await self._request("GET", "/api/albums") or []
+
+    async def async_album_asset_ids(self, album_id: str) -> list[str]:
+        """Identifiants des assets d'un album.
+
+        Deux stratégies successives : selon la version d'Immich,
+        ``GET /api/albums/{id}`` ne renvoie pas toujours le tableau
+        ``assets`` — sur certaines instances il revient vide alors que
+        ``assetCount`` est non nul. On retombe alors sur la recherche filtrée
+        par ``albumIds``, qui fonctionne partout.
+        """
+        try:
+            data = await self._request("GET", f"/api/albums/{album_id}") or {}
+            ids = [
+                a["id"]
+                for a in (data.get("assets") or [])
+                if isinstance(a, dict) and a.get("id")
+            ]
+            if ids:
+                return ids
+        except ImmichApiError as err:
+            _LOGGER.debug("Lecture album %s en échec: %s", album_id, err)
+
+        data = await self._request(
+            "POST",
+            "/api/search/metadata",
+            json={"albumIds": [album_id], "type": "IMAGE", "page": 1, "size": 1000},
+        )
+        items = (data.get("assets") or {}).get("items") or []
+        return [i["id"] for i in items if i.get("id")]
+
+    async def async_create_album(
+        self, name: str, asset_ids: list[str]
+    ) -> str | None:
+        """Crée un album et retourne son identifiant."""
+        data = await self._request(
+            "POST",
+            "/api/albums",
+            json={"albumName": name, "assetIds": list(asset_ids)},
+        )
+        return (data or {}).get("id")
+
+    async def async_add_album_assets(
+        self, album_id: str, asset_ids: list[str]
+    ) -> None:
+        """Ajoute des assets à un album existant."""
+        if not asset_ids:
+            return
+        await self._request(
+            "PUT",
+            f"/api/albums/{album_id}/assets",
+            json={"ids": list(asset_ids)},
+        )
+
+    async def async_remove_album_assets(
+        self, album_id: str, asset_ids: list[str]
+    ) -> None:
+        """Retire des assets d'un album."""
+        if not asset_ids:
+            return
+        await self._request(
+            "DELETE",
+            f"/api/albums/{album_id}/assets",
+            json={"ids": list(asset_ids)},
+        )
+
+    async def async_rename_album(self, album_id: str, name: str) -> None:
+        """Renomme un album. Purement cosmétique : les erreurs sont ignorées."""
+        try:
+            await self._request(
+                "PATCH", f"/api/albums/{album_id}", json={"albumName": name}
+            )
+        except ImmichApiError as err:
+            _LOGGER.debug("Renommage album %s ignoré: %s", album_id, err)
+
     async def async_get_thumbnail(
         self, asset_id: str, *, size: str = "preview"
     ) -> bytes:

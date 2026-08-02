@@ -56,6 +56,20 @@ DEFAULT_ROOMS: Final[dict[str, dict]] = {
 # Services
 SERVICE_REFRESH: Final = "refresh"
 SERVICE_NEXT: Final = "next"
+SERVICE_SYNC_ALBUMS: Final = "sync_albums"
 ATTR_ROOM: Final = "room"
+ATTR_SIZE: Final = "size"
+
+# --- Albums Immich par lit ------------------------------------------------ #
+# Un album par helper input_text, donc par lit — et par cadre photo. C'est la
+# seule granularité qui permette au cadre du lit 1 de montrer l'invité 1 et
+# celui du lit 2 l'invité 2.
+#
+# Le nom est « {prefixe} {chambre} {n} », suffixé du nom de l'invité. Le
+# préfixe commun regroupe les albums dans la liste d'Immich, triée
+# alphabétiquement.
+ALBUM_PREFIX: Final = "PicPak"
+DEFAULT_ALBUM_SIZE: Final = 50
+MAX_ALBUM_SIZE: Final = 500
 
 MANUFACTURER: Final = "Immich"
