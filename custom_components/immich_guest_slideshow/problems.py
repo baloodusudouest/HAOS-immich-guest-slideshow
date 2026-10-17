@@ -20,7 +20,12 @@ from homeassistant.helpers import issue_registry as ir
 from homeassistant.util import slugify
 
 from .const import DOMAIN
-from .person_links import KIND_NOT_FOUND, PersonProblem, link_key
+from .person_links import (
+    KIND_MISSING_HELPER,
+    KIND_NOT_FOUND,
+    PersonProblem,
+    link_key,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -28,6 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 _TRANSLATION_KEYS = {
     "not_found": "person_not_found",
     "few_photos": "person_few_photos",
+    KIND_MISSING_HELPER: "helper_missing",
 }
 
 
@@ -110,11 +116,14 @@ class ProblemReporter:
     def _create(self, issue_id: str, state: _Active) -> None:
         problem = state.problem
         rooms = ", ".join(state.rooms)
+        # Un helper manquant se corrige dans les options de la chambre (ou en
+        # créant le helper) : il n'y a pas de formulaire de liaison à proposer.
+        fixable = problem.kind != KIND_MISSING_HELPER
         ir.async_create_issue(
             self._hass,
             DOMAIN,
             issue_id,
-            is_fixable=True,
+            is_fixable=fixable,
             severity=ir.IssueSeverity.WARNING,
             translation_key=_TRANSLATION_KEYS[problem.kind],
             translation_placeholders={
@@ -132,7 +141,15 @@ class ProblemReporter:
                 "minimum": problem.minimum,
             },
         )
-        if problem.kind == KIND_NOT_FOUND:
+        if problem.kind == KIND_MISSING_HELPER:
+            message = (
+                f"Le helper « {problem.name} » configuré pour la chambre "
+                f"{rooms} n'existe pas : cette chambre ne voit aucun invité. "
+                "Créez-le, ou corrigez les helpers de la chambre dans "
+                "Paramètres → Appareils et services → Immich Guest Slideshow "
+                "→ Configurer (supprimer puis recréer la chambre)."
+            )
+        elif problem.kind == KIND_NOT_FOUND:
             message = (
                 f"La personne « {problem.name} » est introuvable dans Immich "
                 f"(chambre : {rooms}). Ouvrez Paramètres → Système → "

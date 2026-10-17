@@ -21,6 +21,9 @@ STORAGE_VERSION = 1
 
 KIND_NOT_FOUND = "not_found"
 KIND_FEW_PHOTOS = "few_photos"
+# Un helper input_text configuré pour une chambre n'existe pas (``name`` est
+# alors l'identifiant d'entité du helper, pas un nom de personne).
+KIND_MISSING_HELPER = "missing_helper"
 
 
 def link_key(name: str) -> str:
