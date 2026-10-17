@@ -58,3 +58,41 @@ sync_albums:
           max: 500
           step: 5
           mode: box
+
+link_person:
+  name: Lier un nom à une personne Immich
+  description: >-
+    Mémorise que le nom saisi (dans un helper invité ou dans les personnes
+    permanentes) correspond à la personne Immich dont vous donnez l'ID. La
+    liaison est conservée et prime ensuite sur la recherche par nom.
+  fields:
+    name:
+      name: Nom
+      description: Le nom tel qu'il est saisi dans le helper.
+      required: true
+      example: Alexia
+      selector:
+        text:
+    person_id:
+      name: ID de la personne Immich
+      description: >-
+        UUID de la personne, ou URL de sa fiche dans Immich
+        (http://…/people/<id>).
+      required: true
+      example: 1238c4da-3b98-41b9-b795-81d51e95a6d5
+      selector:
+        text:
+
+unlink_person:
+  name: Effacer une liaison nom / personne Immich
+  description: >-
+    Supprime la liaison mémorisée pour un nom. Sans nom, toutes les liaisons
+    sont effacées. Le service renvoie le nombre de liaisons supprimées.
+  fields:
+    name:
+      name: Nom
+      description: Le nom dont la liaison doit être effacée (optionnel).
+      required: false
+      example: Alexia
+      selector:
+        text:

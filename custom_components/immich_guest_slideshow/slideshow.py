@@ -9,6 +9,7 @@ import logging
 import random
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 from homeassistant.core import HomeAssistant
 
@@ -19,7 +20,13 @@ from .api import (
     normalize_name,
 )
 from .cache import CachedPhoto, PhotoCache
-from .const import ALBUM_PREFIX, MAX_ASSETS_PER_SEARCH
+from .const import ALBUM_PREFIX, DEFAULT_MIN_PHOTOS, MAX_ASSETS_PER_SEARCH
+from .person_links import (
+    KIND_FEW_PHOTOS,
+    KIND_NOT_FOUND,
+    PersonLinks,
+    PersonProblem,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +36,15 @@ _EMPTY_STATES = {"", "unknown", "unavailable", "none"}
 # ex. « Jérémy Jouet (2026-07-17 → 2026-07-18) ». Seul le nom doit être
 # envoyé à Immich : on retire tout groupe entre parenthèses en fin de chaîne.
 _RESERVATION_SUFFIX = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+class ProblemSink(Protocol):
+    """Destinataire des problèmes détectés (Réparations, notifications)."""
+
+    def async_update(
+        self, room_id: str, room_name: str, problems: list[PersonProblem]
+    ) -> None:
+        """Reçoit la liste complète et à jour des problèmes d'une chambre."""
 
 
 def extract_guest_name(value: str) -> str:
@@ -98,8 +114,20 @@ class SlideshowEngine:
         helpers: list[str],
         permanents: list[str],
         cache_size: int,
+        min_photos: int = DEFAULT_MIN_PHOTOS,
+        links: PersonLinks | None = None,
+        reporter: ProblemSink | None = None,
     ) -> None:
-        """Initialise le moteur pour une chambre donnée."""
+        """Initialise le moteur pour une chambre donnée.
+
+        Args:
+            min_photos: minimum de photos attendu par invité. En dessous, les
+                photos individuelles de l'invité sont ajoutées ; si le total
+                reste inférieur, un problème « peu de photos » est signalé.
+            links: liaisons nom -> ID de personne Immich (prioritaires).
+            reporter: reçoit les personnes introuvables / avec trop peu de
+                photos pour les signaler à l'utilisateur.
+        """
         self._hass = hass
         self._api = api
         self.room_id = room_id
@@ -109,6 +137,10 @@ class SlideshowEngine:
         # dans le Config Flow depuis iOS/macOS peuvent arriver en NFD.
         self._permanents = [normalize_name(p) for p in permanents if p]
         self._cache = PhotoCache(max_size=cache_size)
+        self._min_photos = max(1, int(min_photos))
+        self._links = links
+        self._reporter = reporter
+        self.problems: list[PersonProblem] = []
         self._person_ids: dict[str, str | None] = {}
         # Nom d'affichage de chaque référence (utile quand elle est un UUID).
         self._person_names: dict[str, str] = {}
@@ -161,16 +193,31 @@ class SlideshowEngine:
     async def _resolve_person_id(self, ref: str) -> str | None:
         """Résout (avec mémo) une référence vers un id de personne Immich.
 
-        ``ref`` est soit un nom complet (recherche par nom), soit un
-        identifiant Immich (UUID, ou URL de la fiche de la personne) qui est
-        alors utilisé directement, sans recherche par nom.
+        Ordre de résolution :
+
+        1. liaison enregistrée par l'utilisateur (nom -> ID) ;
+        2. identifiant Immich saisi directement (UUID, ou URL de la fiche) ;
+        3. recherche par nom.
         """
         if ref not in self._person_ids:
-            uuid = extract_person_uuid(ref)
-            if uuid:
-                person = await self._api.async_get_person(uuid)
-            else:
-                person = await self._api.async_find_person(ref)
+            person = None
+            linked = self._links.get(ref) if self._links else None
+            if linked:
+                person = await self._api.async_get_person(linked)
+                if person is None:
+                    _LOGGER.warning(
+                        "[%s] La personne liée à '%s' (%s) n'existe plus dans "
+                        "Immich: recherche par nom",
+                        self.room_id,
+                        ref,
+                        linked,
+                    )
+            if person is None:
+                uuid = extract_person_uuid(ref)
+                if uuid:
+                    person = await self._api.async_get_person(uuid)
+                else:
+                    person = await self._api.async_find_person(ref)
             self._person_ids[ref] = person["id"] if person else None
             if person is not None:
                 self._person_names[ref] = str(person.get("name") or "").strip() or ref
@@ -191,6 +238,11 @@ class SlideshowEngine:
         """Vide le cache, reconstruit les recherches et recharge les photos.
 
         Appelé au démarrage et à chaque changement d'un helper input_text.
+
+        Toutes les photos trouvées sont conservées, même si leur nombre est
+        inférieur au minimum attendu : le minimum sert uniquement à décider
+        d'ajouter les photos individuelles de l'invité et de prévenir
+        l'utilisateur (personne introuvable ou trop peu de photos).
         """
         self._cache.clear()
         self.current = None
@@ -201,10 +253,12 @@ class SlideshowEngine:
 
         if not self.combos:
             _LOGGER.debug("[%s] Aucun invité: diaporama inactif", self.room_id)
+            self._set_problems([])
             return
 
         photos: list[CachedPhoto] = []
-        guest_hits: dict[str, int] = {guest: 0 for guest in guests}
+        # Photos distinctes trouvées pour chaque invité (toutes recherches).
+        guest_assets: dict[str, set[str]] = {guest: set() for guest in guests}
         for index, combo in enumerate(list(self.combos)):
             try:
                 ids = [await self._resolve_person_id(n) for n in combo.names]
@@ -227,16 +281,18 @@ class SlideshowEngine:
             self.combos[index] = combo
             for guest in guests:
                 if guest in combo.names:
-                    guest_hits[guest] += len(assets)
+                    guest_assets[guest].update(
+                        a["id"] for a in assets if a.get("id")
+                    )
             photos.extend(
                 CachedPhoto(asset_id=a["id"], search_label=combo.label)
                 for a in assets
             )
 
-        # Repli : un invité sans aucune photo avec les propriétaires
-        # bascule sur ses photos individuelles.
+        # Repli : un invité avec moins de photos que le minimum (avec les
+        # propriétaires) reçoit en plus ses photos individuelles.
         for guest in guests:
-            if guest_hits[guest] > 0:
+            if len(guest_assets[guest]) >= self._min_photos:
                 continue
             fallback = SearchCombo((guest,))
             try:
@@ -253,26 +309,61 @@ class SlideshowEngine:
                 continue
             if assets:
                 _LOGGER.info(
-                    "[%s] Aucune photo de '%s' avec les propriétaires: "
-                    "repli sur ses %d photo(s) individuelles",
+                    "[%s] Moins de %d photo(s) de '%s' avec les propriétaires: "
+                    "ajout de ses %d photo(s) individuelles",
                     self.room_id,
+                    self._min_photos,
                     guest,
                     len(assets),
                 )
                 fallback = self._labelled(fallback)
                 self.combos.append(fallback)
+                guest_assets[guest].update(a["id"] for a in assets if a.get("id"))
                 photos.extend(
                     CachedPhoto(asset_id=a["id"], search_label=fallback.label)
                     for a in assets
                 )
 
         self._cache.replace(photos)
+        self._set_problems(self._collect_problems(guests, guest_assets))
         _LOGGER.debug(
             "[%s] Cache reconstruit: %d photo(s) via %d recherche(s)",
             self.room_id,
             len(self._cache),
             len(self.combos),
         )
+
+    def _collect_problems(
+        self, guests: list[str], guest_assets: dict[str, set[str]]
+    ) -> list[PersonProblem]:
+        """Personnes introuvables, et invités avec trop peu de photos.
+
+        Une saisie qui est déjà un identifiant Immich n'est pas signalée : la
+        lier à un nom n'aurait aucun sens, il faut corriger la saisie.
+        """
+        problems: list[PersonProblem] = []
+        unresolved: set[str] = set()
+        for ref, pid in self._person_ids.items():
+            if pid is None and not extract_person_uuid(ref):
+                unresolved.add(ref)
+                problems.append(
+                    PersonProblem(ref, KIND_NOT_FOUND, 0, self._min_photos)
+                )
+        for guest in guests:
+            if guest in unresolved or self._person_ids.get(guest) is None:
+                continue
+            found = len(guest_assets[guest])
+            if found < self._min_photos:
+                problems.append(
+                    PersonProblem(guest, KIND_FEW_PHOTOS, found, self._min_photos)
+                )
+        return problems
+
+    def _set_problems(self, problems: list[PersonProblem]) -> None:
+        """Mémorise les problèmes et les transmet au destinataire."""
+        self.problems = problems
+        if self._reporter is not None:
+            self._reporter.async_update(self.room_id, self.room_name, problems)
 
     # ------------------------------------------------------------------ #
     # Albums Immich

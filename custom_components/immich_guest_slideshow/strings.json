@@ -35,7 +35,8 @@
           "interval": "Seconds between two images",
           "cache_size": "Max photos cached per room",
           "rebuild_hours": "Cache refresh interval in hours (0 = disabled)",
-          "permanent_persons": "Permanent persons (exact names or Immich person IDs, comma separated)"
+          "permanent_persons": "Permanent persons (exact names or Immich person IDs, comma separated)",
+          "min_photos": "Minimum photos per guest (below this, their own photos are added and a repair is raised)"
         }
       },
       "add_room": {
@@ -62,6 +63,46 @@
     "sensor": {
       "current_search": {
         "name": "Current search"
+      }
+    }
+  },
+  "issues": {
+    "person_not_found": {
+      "title": "Immich person not found: {name}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Link {name} to an Immich person",
+            "description": "\"{name}\" (room: {rooms}) matches nobody in Immich. In Immich, open the person's page and copy its URL (http://…/people/<id>) or just the ID, then paste it here. The link is remembered.",
+            "data": {
+              "person_id": "Immich person ID or URL"
+            }
+          }
+        },
+        "error": {
+          "invalid_person_id": "No valid ID found in this value",
+          "person_not_found": "This ID does not exist in Immich",
+          "cannot_connect": "Unable to reach Immich"
+        }
+      }
+    },
+    "person_few_photos": {
+      "title": "Few photos for {name}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Link {name} to the right Immich person",
+            "description": "\"{name}\" (room: {rooms}) has only {found} photo(s) in Immich (minimum: {minimum}). All available photos are shown. If this is the wrong person, paste the ID or page URL of the right one; the link is remembered.",
+            "data": {
+              "person_id": "Immich person ID or URL"
+            }
+          }
+        },
+        "error": {
+          "invalid_person_id": "No valid ID found in this value",
+          "person_not_found": "This ID does not exist in Immich",
+          "cannot_connect": "Unable to reach Immich"
+        }
       }
     }
   }

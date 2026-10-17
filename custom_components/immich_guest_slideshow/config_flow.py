@@ -36,12 +36,14 @@ from .const import (
     CONF_API_KEY,
     CONF_CACHE_SIZE,
     CONF_INTERVAL,
+    CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
     CONF_REBUILD_HOURS,
     CONF_ROOMS,
     CONF_URL,
     DEFAULT_CACHE_SIZE,
     DEFAULT_INTERVAL,
+    DEFAULT_MIN_PHOTOS,
     DEFAULT_PERMANENT_PERSONS,
     DEFAULT_REBUILD_HOURS,
     DEFAULT_ROOMS,
@@ -139,6 +141,7 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
             self.options[CONF_INTERVAL] = user_input[CONF_INTERVAL]
             self.options[CONF_CACHE_SIZE] = user_input[CONF_CACHE_SIZE]
             self.options[CONF_REBUILD_HOURS] = user_input[CONF_REBUILD_HOURS]
+            self.options[CONF_MIN_PHOTOS] = user_input[CONF_MIN_PHOTOS]
             self.options[CONF_PERMANENT_PERSONS] = [
                 name.strip()
                 for name in user_input[CONF_PERMANENT_PERSONS].split(",")
@@ -161,6 +164,10 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
                     CONF_REBUILD_HOURS,
                     default=opts.get(CONF_REBUILD_HOURS, DEFAULT_REBUILD_HOURS),
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=168)),
+                vol.Required(
+                    CONF_MIN_PHOTOS,
+                    default=opts.get(CONF_MIN_PHOTOS, DEFAULT_MIN_PHOTOS),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=100)),
                 vol.Required(
                     CONF_PERMANENT_PERSONS,
                     default=", ".join(
