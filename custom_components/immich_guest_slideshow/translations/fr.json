@@ -35,7 +35,7 @@
           "interval": "Secondes entre deux images",
           "cache_size": "Nombre max de photos en cache par chambre",
           "rebuild_hours": "Rafraîchissement du cache en heures (0 = désactivé)",
-          "permanent_persons": "Personnes permanentes (séparées par des virgules)"
+          "permanent_persons": "Personnes permanentes (noms exacts ou ID de personne Immich, séparés par des virgules)"
         }
       },
       "add_room": {
