@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.5.0 — 2026-10-17
+
+### Personnes introuvables ou avec peu de photos : réparation guidée
+
+- Quand un nom saisi (invité ou personne permanente) ne correspond à personne
+  dans Immich, ou quand un invité a **moins de 2 photos**, un élément apparaît
+  dans **Paramètres → Système → Réparations**, avec une notification
+  persistante (cloche) qui y renvoie. Le formulaire demande l'ID de la
+  personne Immich (UUID ou URL de sa fiche) et **mémorise la liaison**.
+- La liaison nom → ID est **globale** (toutes les chambres, invités et
+  propriétaires), conservée après redémarrage, et **prioritaire** sur la
+  recherche par nom. Si la personne liée n'existe plus dans Immich, on
+  retombe sur la recherche par nom.
+- Un même nom présent dans plusieurs chambres ne produit qu'un seul élément ;
+  il disparaît dès que le problème est résolu.
+- Nouveau réglage **Photos minimum par invité** (2 par défaut). En dessous,
+  les photos individuelles de l'invité s'ajoutent à celles avec les
+  propriétaires (avant : uniquement s'il n'y en avait aucune). **Toutes les
+  photos trouvées sont toujours affichées**, même sous le minimum : il sert à
+  compléter et à prévenir, jamais à masquer.
+- Nouveaux services : `immich_guest_slideshow.link_person` (lier un nom à un
+  ID sans passer par les Réparations) et `immich_guest_slideshow.unlink_person`
+  (effacer la liaison d'un nom, ou toutes si aucun nom n'est donné).
+
 ## 1.4.0 — 2026-10-17
 
 - Nouveau : une personne Immich peut désormais être désignée par son
