@@ -35,7 +35,8 @@
           "interval": "Secondes entre deux images",
           "cache_size": "Nombre max de photos en cache par chambre",
           "rebuild_hours": "Rafraîchissement du cache en heures (0 = désactivé)",
-          "permanent_persons": "Personnes permanentes (noms exacts ou ID de personne Immich, séparés par des virgules)"
+          "permanent_persons": "Personnes permanentes (noms exacts ou ID de personne Immich, séparés par des virgules)",
+          "min_photos": "Photos minimum par invité (en dessous, ses photos individuelles sont ajoutées et une réparation est créée)"
         }
       },
       "add_room": {
@@ -62,6 +63,46 @@
     "sensor": {
       "current_search": {
         "name": "Recherche courante"
+      }
+    }
+  },
+  "issues": {
+    "person_not_found": {
+      "title": "Personne Immich introuvable : {name}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Lier {name} à une personne Immich",
+            "description": "« {name} » (chambre : {rooms}) ne correspond à personne dans Immich. Dans Immich, ouvrez la fiche de la personne et copiez son URL (http://…/people/<id>) ou seulement l'ID, puis collez-le ici. La liaison est mémorisée.",
+            "data": {
+              "person_id": "ID ou URL de la personne Immich"
+            }
+          }
+        },
+        "error": {
+          "invalid_person_id": "Aucun ID valide dans cette valeur",
+          "person_not_found": "Cet ID n'existe pas dans Immich",
+          "cannot_connect": "Impossible de joindre Immich"
+        }
+      }
+    },
+    "person_few_photos": {
+      "title": "Peu de photos pour {name}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Lier {name} à la bonne personne Immich",
+            "description": "« {name} » (chambre : {rooms}) n'a que {found} photo(s) dans Immich (minimum : {minimum}). Toutes les photos disponibles sont affichées. Si ce n'est pas la bonne personne, collez l'ID ou l'URL de la fiche de la bonne ; la liaison est mémorisée.",
+            "data": {
+              "person_id": "ID ou URL de la personne Immich"
+            }
+          }
+        },
+        "error": {
+          "invalid_person_id": "Aucun ID valide dans cette valeur",
+          "person_not_found": "Cet ID n'existe pas dans Immich",
+          "cannot_connect": "Impossible de joindre Immich"
+        }
       }
     }
   }
