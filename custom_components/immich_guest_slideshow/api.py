@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import unicodedata
 from typing import Any
 
@@ -15,6 +16,21 @@ import aiohttp
 _LOGGER = logging.getLogger(__name__)
 
 DEFAULT_TIMEOUT = aiohttp.ClientTimeout(total=30)
+
+_UUID_RE = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+
+
+def extract_person_uuid(value: str) -> str | None:
+    """Extrait un identifiant de personne Immich (UUID) d'une saisie.
+
+    Accepte aussi bien l'UUID seul que l'URL de la fiche de la personne,
+    ex. ``http://192.168.1.90:2283/people/1238c4da-...?previousRoute=%2Fphotos``.
+    Retourne ``None`` si la saisie ne contient pas d'UUID (c'est alors un nom).
+    """
+    match = _UUID_RE.search(value or "")
+    return match.group(0).lower() if match else None
 
 
 def normalize_name(value: str) -> str:
@@ -126,6 +142,23 @@ class ImmichApiClient:
             "GET", "/api/search/person", params={"name": name}
         )
         return results or []
+
+    async def async_get_person(self, person_id: str) -> dict[str, Any] | None:
+        """Récupère une personne Immich par son identifiant (UUID).
+
+        Returns:
+            Le dictionnaire de la personne, ou ``None`` si l'identifiant est
+            inconnu d'Immich (404 / identifiant invalide). Les erreurs
+            d'authentification et de connexion sont propagées.
+        """
+        try:
+            person = await self._request("GET", f"/api/people/{person_id}")
+        except (ImmichAuthError, ImmichConnectionError):
+            raise
+        except ImmichApiError as err:
+            _LOGGER.debug("Personne %s introuvable: %s", person_id, err)
+            return None
+        return person or None
 
     async def async_find_person(self, full_name: str) -> dict[str, Any] | None:
         """Recherche une personne par son nom complet.

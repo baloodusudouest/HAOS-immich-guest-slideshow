@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.4.0 — 2026-10-17
+
+- Nouveau : une personne Immich peut désormais être désignée par son
+  **identifiant (UUID)** au lieu de son nom, partout où un nom est accepté :
+  personnes permanentes (options) et helpers `input_text` des invités.
+  Il suffit de coller l'UUID, ou directement l'URL de la fiche de la personne
+  (`.../people/<uuid>`). Les noms continuent de fonctionner comme avant.
+- L'UUID évite les ambiguïtés d'homonymes, les personnes sans nom et les
+  personnes renommées dans Immich. Les sensors et les noms d'albums affichent
+  le nom Immich de la personne, pas l'UUID.
+
 ## 1.3.1 — 2026-08-02
 
 - Correction : dans une chambre à plusieurs lits occupée par une seule
