@@ -15,6 +15,7 @@ CONF_CACHE_SIZE: Final = "cache_size"                # nb max de photos en cache
 CONF_PERMANENT_PERSONS: Final = "permanent_persons"  # liste de noms complets
 CONF_ROOMS: Final = "rooms"
 CONF_REBUILD_HOURS: Final = "rebuild_hours"          # rafraîchissement du cache
+CONF_MIN_PHOTOS: Final = "min_photos"                # minimum de photos par invité
 
 # Clés internes d'une chambre
 KEY_NAME: Final = "name"
@@ -24,6 +25,9 @@ DEFAULT_INTERVAL: Final = 30
 DEFAULT_CACHE_SIZE: Final = 50
 DEFAULT_PERMANENT_PERSONS: Final = ["Propriétaire 1", "Propriétaire 2"]
 DEFAULT_REBUILD_HOURS: Final = 6
+# En dessous de ce nombre de photos (avec les propriétaires), on affiche aussi
+# les photos individuelles de l'invité ; sous ce nombre au total, on prévient.
+DEFAULT_MIN_PHOTOS: Final = 2
 
 # Nombre maximum de photos récupérées par recherche (pagination)
 MAX_ASSETS_PER_SEARCH: Final = 400
@@ -57,7 +61,11 @@ DEFAULT_ROOMS: Final[dict[str, dict]] = {
 SERVICE_REFRESH: Final = "refresh"
 SERVICE_NEXT: Final = "next"
 SERVICE_SYNC_ALBUMS: Final = "sync_albums"
+SERVICE_LINK_PERSON: Final = "link_person"
+SERVICE_UNLINK_PERSON: Final = "unlink_person"
 ATTR_ROOM: Final = "room"
+ATTR_NAME: Final = "name"
+ATTR_PERSON_ID: Final = "person_id"
 ATTR_SIZE: Final = "size"
 
 # --- Albums Immich par lit ------------------------------------------------ #

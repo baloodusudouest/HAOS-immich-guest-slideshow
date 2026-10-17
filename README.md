@@ -50,6 +50,11 @@ cache et la liste des recherches actives.
   chambre (paramètre optionnel `room`, ex. `chambre_d_ami`) ou de toutes.
 - `immich_guest_slideshow.next` — passe immédiatement à l'image suivante
   (paramètre optionnel `room`).
+- `immich_guest_slideshow.link_person` — lie un nom (`name`) à une personne
+  Immich (`person_id` : UUID ou URL de sa fiche). La liaison est mémorisée.
+- `immich_guest_slideshow.unlink_person` — efface la liaison d'un nom
+  (`name`), ou **toutes** les liaisons si `name` est omis. Renvoie le nombre
+  de liaisons supprimées.
 
 Le cache est par ailleurs reconstruit automatiquement toutes les 6 heures
 (réglable, `0` pour désactiver) afin d'intégrer les nouvelles photos Immich.
@@ -97,6 +102,26 @@ http://192.168.1.90:2283/people/1238c4da-3b98-41b9-b795-81d51e95a6d5
 L'ID est repris de l'URL de la fiche de la personne dans Immich
 (`/people/<id>`). Les noms continuent de fonctionner ; l'ID est utile en cas
 d'homonymes, de personne sans nom ou renommée.
+
+### Personne introuvable ou peu de photos : liaison mémorisée
+
+Si un nom ne correspond à personne dans Immich, ou si un invité a moins de
+**2 photos** (réglable : *Photos minimum par invité*), Home Assistant crée :
+
+- un élément dans **Paramètres → Système → Réparations** ;
+- une notification persistante (cloche) qui y renvoie.
+
+Cliquez sur l'élément, collez l'**ID** de la bonne personne (ou l'URL de sa
+fiche Immich) : le nom est alors **lié** à cet ID, pour toutes les chambres,
+et la liaison est conservée après redémarrage. Elle prime sur la recherche par
+nom. L'élément disparaît dès que le problème est résolu.
+
+Les photos trouvées sont **toujours toutes affichées**, même sous le minimum :
+en dessous du seuil, les photos individuelles de l'invité sont simplement
+ajoutées à celles qu'il a avec les propriétaires.
+
+Pour défaire une liaison : service `immich_guest_slideshow.unlink_person`
+(avec `name`, ou sans paramètre pour tout effacer).
 
 ## Prérequis
 
