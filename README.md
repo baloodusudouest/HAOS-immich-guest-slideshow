@@ -83,6 +83,21 @@ Copier `custom_components/immich_guest_slideshow/` dans le dossier
 Les trois chambres du tableau ci-dessus sont créées par défaut ; pour
 modifier une chambre, supprimez-la puis recréez-la.
 
+### Désigner une personne par son ID Immich
+
+Partout où un nom est attendu (personnes permanentes dans les options, valeur
+d'un helper `input_text` d'invité), vous pouvez saisir à la place l'**ID de la
+personne Immich** (UUID), ou coller l'URL de sa fiche :
+
+```
+1238c4da-3b98-41b9-b795-81d51e95a6d5
+http://192.168.1.90:2283/people/1238c4da-3b98-41b9-b795-81d51e95a6d5
+```
+
+L'ID est repris de l'URL de la fiche de la personne dans Immich
+(`/people/<id>`). Les noms continuent de fonctionner ; l'ID est utile en cas
+d'homonymes, de personne sans nom ou renommée.
+
 ## Prérequis
 
 - Home Assistant 2024.6+ (testé HAOS 2026.x)
