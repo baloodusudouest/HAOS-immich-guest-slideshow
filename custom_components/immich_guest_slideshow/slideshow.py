@@ -12,7 +12,12 @@ from dataclasses import dataclass
 
 from homeassistant.core import HomeAssistant
 
-from .api import ImmichApiClient, ImmichApiError, normalize_name
+from .api import (
+    ImmichApiClient,
+    ImmichApiError,
+    extract_person_uuid,
+    normalize_name,
+)
 from .cache import CachedPhoto, PhotoCache
 from .const import ALBUM_PREFIX, MAX_ASSETS_PER_SEARCH
 
@@ -40,11 +45,13 @@ class SearchCombo:
     """Une combinaison de personnes à rechercher dans Immich."""
 
     names: tuple[str, ...]
+    # Noms affichables quand ``names`` contient des identifiants Immich (UUID).
+    display: tuple[str, ...] | None = None
 
     @property
     def label(self) -> str:
         """Libellé lisible pour les sensors (ex. 'Alice + Propriétaire 1')."""
-        return " + ".join(self.names)
+        return " + ".join(self.display or self.names)
 
 
 def build_search_combos(
@@ -103,6 +110,8 @@ class SlideshowEngine:
         self._permanents = [normalize_name(p) for p in permanents if p]
         self._cache = PhotoCache(max_size=cache_size)
         self._person_ids: dict[str, str | None] = {}
+        # Nom d'affichage de chaque référence (utile quand elle est un UUID).
+        self._person_names: dict[str, str] = {}
         self.current: CachedPhoto | None = None
         self.combos: list[SearchCombo] = []
 
@@ -149,16 +158,34 @@ class SlideshowEngine:
     # ------------------------------------------------------------------ #
     # Résolution des personnes et remplissage du cache
     # ------------------------------------------------------------------ #
-    async def _resolve_person_id(self, name: str) -> str | None:
-        """Résout (avec mémo) un nom complet vers un id de personne Immich."""
-        if name not in self._person_ids:
-            person = await self._api.async_find_person(name)
-            self._person_ids[name] = person["id"] if person else None
-            if person is None:
+    async def _resolve_person_id(self, ref: str) -> str | None:
+        """Résout (avec mémo) une référence vers un id de personne Immich.
+
+        ``ref`` est soit un nom complet (recherche par nom), soit un
+        identifiant Immich (UUID, ou URL de la fiche de la personne) qui est
+        alors utilisé directement, sans recherche par nom.
+        """
+        if ref not in self._person_ids:
+            uuid = extract_person_uuid(ref)
+            if uuid:
+                person = await self._api.async_get_person(uuid)
+            else:
+                person = await self._api.async_find_person(ref)
+            self._person_ids[ref] = person["id"] if person else None
+            if person is not None:
+                self._person_names[ref] = str(person.get("name") or "").strip() or ref
+            else:
                 _LOGGER.warning(
-                    "[%s] Personne Immich introuvable: %s", self.room_id, name
+                    "[%s] Personne Immich introuvable: %s", self.room_id, ref
                 )
-        return self._person_ids[name]
+        return self._person_ids[ref]
+
+    def _labelled(self, combo: SearchCombo) -> SearchCombo:
+        """Retourne ``combo`` avec des noms lisibles à la place des UUID."""
+        display = tuple(self._person_names.get(n, n) for n in combo.names)
+        if display == combo.names:
+            return combo
+        return SearchCombo(combo.names, display)
 
     async def async_rebuild(self) -> None:
         """Vide le cache, reconstruit les recherches et recharge les photos.
@@ -168,6 +195,7 @@ class SlideshowEngine:
         self._cache.clear()
         self.current = None
         self._person_ids.clear()
+        self._person_names.clear()
         guests = self.get_guests()
         self.combos = build_search_combos(guests, self._permanents)
 
@@ -177,7 +205,7 @@ class SlideshowEngine:
 
         photos: list[CachedPhoto] = []
         guest_hits: dict[str, int] = {guest: 0 for guest in guests}
-        for combo in self.combos:
+        for index, combo in enumerate(list(self.combos)):
             try:
                 ids = [await self._resolve_person_id(n) for n in combo.names]
                 if any(pid is None for pid in ids):
@@ -194,6 +222,9 @@ class SlideshowEngine:
                     err,
                 )
                 continue
+            # Les UUID sont résolus : on affiche les noms Immich correspondants.
+            combo = self._labelled(combo)
+            self.combos[index] = combo
             for guest in guests:
                 if guest in combo.names:
                     guest_hits[guest] += len(assets)
@@ -228,6 +259,7 @@ class SlideshowEngine:
                     guest,
                     len(assets),
                 )
+                fallback = self._labelled(fallback)
                 self.combos.append(fallback)
                 photos.extend(
                     CachedPhoto(asset_id=a["id"], search_label=fallback.label)
@@ -292,7 +324,10 @@ class SlideshowEngine:
     def _album_name(self, index: int, guest: str | None) -> str:
         """« PicPak Chambre d'ami 1 — Alice »."""
         base = f"{ALBUM_PREFIX} {self.room_name} {index + 1}"
-        return f"{base} — {guest}" if guest else base
+        if not guest:
+            return base
+        # Si l'invité est saisi sous forme d'UUID, on affiche son nom Immich.
+        return f"{base} — {self._person_names.get(guest, guest)}"
 
     def _album_base_name(self, index: int) -> str:
         """Préfixe stable, utilisé pour retrouver l'album malgré le renommage."""
