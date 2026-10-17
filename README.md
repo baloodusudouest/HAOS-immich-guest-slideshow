@@ -120,6 +120,11 @@ Les photos trouvées sont **toujours toutes affichées**, même sous le minimum 
 en dessous du seuil, les photos individuelles de l'invité sont simplement
 ajoutées à celles qu'il a avec les propriétaires.
 
+Si un **helper configuré pour une chambre n'existe pas** (renommé ou
+supprimé), une réparation « Helper introuvable » le signale : sans elle, la
+chambre ne verrait simplement aucun invité. Créez le helper, ou supprimez puis
+recréez la chambre dans *Configurer* avec les bons helpers.
+
 Pour défaire une liaison : service `immich_guest_slideshow.unlink_person`
 (avec `name`, ou sans paramètre pour tout effacer).
 

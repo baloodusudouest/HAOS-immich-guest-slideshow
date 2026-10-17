@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from custom_components.immich_guest_slideshow.person_links import (
     KIND_FEW_PHOTOS,
+    KIND_MISSING_HELPER,
     KIND_NOT_FOUND,
     PersonLinks,
     PersonProblem,
@@ -47,6 +48,7 @@ class FakeHass:
     def __init__(self, values: dict[str, str]) -> None:
         self.states = self
         self._values = values
+        self.is_running = True
 
     def get(self, entity_id: str) -> FakeState | None:
         value = self._values.get(entity_id)
@@ -377,3 +379,90 @@ def test_reporter_clear_all() -> None:
         reporter.async_clear_all()
 
     assert ir.async_delete_issue.call_count == 1
+
+
+# --------------------------------------------------------------------------- #
+# Helpers inexistants
+# --------------------------------------------------------------------------- #
+def _engine_with_helpers(
+    hass: FakeHass, helpers: list[str], reporter: FakeReporter
+) -> SlideshowEngine:
+    return SlideshowEngine(
+        hass,  # type: ignore[arg-type]
+        FakeApi({}),  # type: ignore[arg-type]
+        room_id="chambre_test",
+        room_name="Chambre test",
+        helpers=helpers,
+        permanents=[OWNER1],
+        cache_size=100,
+        reporter=reporter,
+    )
+
+
+def test_missing_helper_is_reported_even_without_any_guest() -> None:
+    """Le cas réel : helper inexistant -> aucun invité vu, mais on le dit."""
+    reporter = FakeReporter()
+    hass = FakeHass({"input_text.h1": ""})
+    engine = _engine_with_helpers(hass, ["input_text.h1", "input_text.absent"], reporter)
+
+    asyncio.run(engine.async_rebuild())
+
+    assert reporter.last == [PersonProblem("input_text.absent", KIND_MISSING_HELPER)]
+
+
+def test_existing_empty_helper_is_not_a_problem() -> None:
+    reporter = FakeReporter()
+    engine = _engine_with_helpers(
+        FakeHass({"input_text.h1": "unknown"}), ["input_text.h1"], reporter
+    )
+
+    asyncio.run(engine.async_rebuild())
+
+    assert reporter.last == []
+
+
+def test_missing_helper_not_reported_while_starting_then_after() -> None:
+    """Pendant le démarrage les états ne sont pas chargés : pas de fausse alerte."""
+    reporter = FakeReporter()
+    hass = FakeHass({})
+    hass.is_running = False
+    engine = _engine_with_helpers(hass, ["input_text.h1"], reporter)
+
+    asyncio.run(engine.async_rebuild())
+    assert reporter.last == []
+
+    hass.is_running = True
+    engine.refresh_problems()
+    assert reporter.last == [PersonProblem("input_text.h1", KIND_MISSING_HELPER)]
+
+
+def test_missing_helper_disappears_once_created() -> None:
+    reporter = FakeReporter()
+    hass = FakeHass({})
+    engine = _engine_with_helpers(hass, ["input_text.h1"], reporter)
+
+    asyncio.run(engine.async_rebuild())
+    assert reporter.last == [PersonProblem("input_text.h1", KIND_MISSING_HELPER)]
+
+    hass._values["input_text.h1"] = ""
+    asyncio.run(engine.async_rebuild())
+    assert reporter.last == []
+
+
+def test_reporter_missing_helper_is_not_fixable() -> None:
+    ir = MagicMock()
+    notif = MagicMock()
+    with patch("custom_components.immich_guest_slideshow.problems.ir", ir), patch(
+        "custom_components.immich_guest_slideshow.problems.persistent_notification",
+        notif,
+    ):
+        reporter = ProblemReporter(MagicMock(), "entry1")
+        reporter.async_update(
+            "r1", "Chambre 1", [PersonProblem("input_text.h1", KIND_MISSING_HELPER)]
+        )
+
+    kwargs = ir.async_create_issue.call_args.kwargs
+    assert kwargs["is_fixable"] is False
+    assert kwargs["translation_key"] == "helper_missing"
+    assert kwargs["translation_placeholders"]["name"] == "input_text.h1"
+    assert "input_text.h1" in notif.async_create.call_args.args[1]
