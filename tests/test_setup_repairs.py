@@ -177,3 +177,31 @@ async def test_link_service_fixes_the_issue(hass: HomeAssistant) -> None:
     await hass.async_block_till_done()
     assert response == {"removed": 1}
     assert _issues(hass) == [("person_not_found", "Alex")]
+
+
+async def test_missing_helper_raises_repair_then_clears(hass: HomeAssistant) -> None:
+    """Le helper configuré n'existe pas : réparation (non réparable par
+    formulaire) ; elle disparaît quand le helper est créé."""
+    FakeImmich.photos = {}
+    entry = _entry()
+    entry.add_to_hass(hass)  # le helper n'a volontairement PAS d'état
+    with patch(
+        "custom_components.immich_guest_slideshow.ImmichApiClient", FakeImmich
+    ):
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert entry.state is ConfigEntryState.LOADED
+    assert _issues(hass) == [("helper_missing", HELPER)]
+    issue = next(
+        i for i in ir.async_get(hass).issues.values() if i.domain == DOMAIN
+    )
+    assert issue.is_fixable is False
+    assert len(persistent_notification._async_get_or_create_notifications(hass)) == 1
+
+    with patch(
+        "custom_components.immich_guest_slideshow.ImmichApiClient", FakeImmich
+    ):
+        hass.states.async_set(HELPER, "")
+        await hass.async_block_till_done()
+    assert _issues(hass) == []

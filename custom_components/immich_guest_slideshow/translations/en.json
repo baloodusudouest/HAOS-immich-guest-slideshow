@@ -131,6 +131,10 @@
           "cannot_connect": "Unable to reach Immich"
         }
       }
+    },
+    "helper_missing": {
+      "title": "Helper not found: {name}",
+      "description": "The helper \"{name}\" configured for room {rooms} does not exist, so that room sees no guest. Create it, or fix the room's helpers: Settings → Devices & services → Immich Guest Slideshow → Configure (remove then re-add the room)."
     }
   }
 }

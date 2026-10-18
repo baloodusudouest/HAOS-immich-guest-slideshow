@@ -23,6 +23,7 @@ from .cache import CachedPhoto, PhotoCache
 from .const import ALBUM_PREFIX, DEFAULT_MIN_PHOTOS, MAX_ASSETS_PER_SEARCH
 from .person_links import (
     KIND_FEW_PHOTOS,
+    KIND_MISSING_HELPER,
     KIND_NOT_FOUND,
     PersonLinks,
     PersonProblem,
@@ -141,6 +142,9 @@ class SlideshowEngine:
         self._links = links
         self._reporter = reporter
         self.problems: list[PersonProblem] = []
+        # Problèmes de personnes du dernier rebuild (les helpers manquants
+        # sont recalculés à chaque publication).
+        self._person_problems: list[PersonProblem] = []
         self._person_ids: dict[str, str | None] = {}
         # Nom d'affichage de chaque référence (utile quand elle est un UUID).
         self._person_names: dict[str, str] = {}
@@ -373,11 +377,35 @@ class SlideshowEngine:
                 )
         return problems
 
+    def _missing_helper_problems(self) -> list[PersonProblem]:
+        """Helpers configurés pour la chambre mais inexistants dans HA.
+
+        Sans ce signalement, une chambre dont les helpers n'existent pas (nom
+        modifié, helper supprimé) ne voit simplement aucun invité : aucun
+        message, un capteur « indisponible », et rien pour comprendre pourquoi.
+
+        Tant que Home Assistant démarre, les états des helpers ne sont pas
+        tous chargés : on ne signale rien, ``refresh_problems`` est rappelé
+        une fois le démarrage terminé.
+        """
+        if not getattr(self._hass, "is_running", True):
+            return []
+        return [
+            PersonProblem(entity_id, KIND_MISSING_HELPER)
+            for entity_id in self.helpers
+            if self._hass.states.get(entity_id) is None
+        ]
+
     def _set_problems(self, problems: list[PersonProblem]) -> None:
-        """Mémorise les problèmes et les transmet au destinataire."""
-        self.problems = problems
+        """Mémorise les problèmes de personnes puis publie le tout."""
+        self._person_problems = problems
+        self.refresh_problems()
+
+    def refresh_problems(self) -> None:
+        """Republie les problèmes (personnes + helpers manquants)."""
+        self.problems = [*self._person_problems, *self._missing_helper_problems()]
         if self._reporter is not None:
-            self._reporter.async_update(self.room_id, self.room_name, problems)
+            self._reporter.async_update(self.room_id, self.room_name, self.problems)
 
     # ------------------------------------------------------------------ #
     # Albums Immich

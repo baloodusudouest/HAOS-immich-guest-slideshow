@@ -131,6 +131,10 @@
           "cannot_connect": "Impossible de joindre Immich"
         }
       }
+    },
+    "helper_missing": {
+      "title": "Helper introuvable : {name}",
+      "description": "Le helper « {name} » configuré pour la chambre {rooms} n'existe pas : cette chambre ne voit aucun invité. Créez-le, ou corrigez les helpers de la chambre : Paramètres → Appareils et services → Immich Guest Slideshow → Configurer (supprimer puis recréer la chambre)."
     }
   }
 }
