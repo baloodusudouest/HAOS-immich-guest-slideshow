@@ -81,3 +81,36 @@ DEFAULT_ALBUM_SIZE: Final = 50
 MAX_ALBUM_SIZE: Final = 500
 
 MANUFACTURER: Final = "Immich"
+
+# --- Cadres e-ink PicPak (firmware open-PicPak, tirage Wi-Fi) ------------- #
+# Un cadre par lit : le cadre n° N d'une chambre suit le helper n° N. Chaque
+# cadre télécharge à chaque réveil une image déjà rendue (30 000 octets) sur
+# l'URL de la vue HTTP ci-dessous ; la réponse fixe aussi son prochain réveil.
+PICPAK_URL_PATH: Final = "/api/immich_guest_slideshow/picpak/{room_id}/{bed}"
+PICPAK_URL_MAX: Final = 128  # taille max d'une URL dans la NVS du cadre
+
+CONF_PICPAK_INTERVAL: Final = "picpak_interval"   # minutes entre deux photos
+CONF_PICPAK_PHOTOS: Final = "picpak_photos"       # photos par cadre et par séjour
+CONF_PICPAK_QUIET: Final = "picpak_quiet"         # pause nocturne « 23:00-07:00 »
+CONF_PICPAK_LOGO: Final = "picpak_logo"           # chemin du logo (chambre libre)
+CONF_PICPAK_TITLE: Final = "picpak_title"         # logo texte de secours
+CONF_PICPAK_SUBTITLE: Final = "picpak_subtitle"
+CONF_PICPAK_BASE_URL: Final = "picpak_base_url"   # URL locale de HA vue du cadre
+
+DEFAULT_PICPAK_INTERVAL: Final = 60
+DEFAULT_PICPAK_PHOTOS: Final = 50
+DEFAULT_PICPAK_QUIET: Final = ""
+DEFAULT_PICPAK_LOGO: Final = "/config/www/picpak_logo.png"
+DEFAULT_PICPAK_TITLE: Final = "Bienvenue"
+DEFAULT_PICPAK_SUBTITLE: Final = ""
+DEFAULT_PICPAK_BASE_URL: Final = ""
+
+SERVICE_PICPAK_URLS: Final = "picpak_urls"
+SERVICE_PICPAK_NEXT: Final = "picpak_next"
+ATTR_BED: Final = "bed"
+ATTR_BASE_URL: Final = "base_url"
+
+# Signal de mise à jour des entités d'un cadre : format(entry_id, frame_key)
+SIGNAL_PICPAK_UPDATE: Final = "immich_guest_slideshow_picpak_{}_{}"
+PICPAK_MANUFACTURER: Final = "PicPak (firmware open-PicPak)"
+PICPAK_MODEL: Final = "PicPak 4,2″ BWRY"
