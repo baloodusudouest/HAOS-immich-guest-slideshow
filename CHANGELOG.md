@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.1 — 2026-10-19
+
+- Correction : l'entité image d'un cadre PicPak restait vide (image cassée) tant que
+  le cadre ne s'était pas encore connecté, ou juste après un redémarrage de
+  Home Assistant. Elle montre désormais l'image que le cadre affichera à son
+  prochain réveil (photo prévue, ou logo si la chambre est libre).
+- Les sélections de photos des cadres sont construites dès le démarrage, et
+  non plus au premier réveil du cadre.
+
 ## 1.6.0 — 2026-10-18
 
 ### Cadres e-ink PicPak
