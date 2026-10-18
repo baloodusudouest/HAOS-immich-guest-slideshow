@@ -33,6 +33,7 @@ from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_state_change_event,
 )
+from homeassistant.helpers.start import async_at_started
 
 from .api import (
     ImmichApiClient,
@@ -204,6 +205,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
             hass, list(helper_to_room), _on_helper_change
         )
     )
+
+    # --- Helpers manquants ---------------------------------------------- #
+    # Pendant le démarrage, les états des helpers ne sont pas tous chargés :
+    # le signalement des helpers inexistants attend la fin du démarrage.
+    async def _on_started(_hass: HomeAssistant) -> None:
+        for coordinator in runtime.coordinators.values():
+            coordinator.engine.refresh_problems()
+
+    entry.async_on_unload(async_at_started(hass, _on_started))
 
     # --- Service manuel de rafraîchissement ----------------------------- #
     async def _handle_refresh(call: ServiceCall) -> None:
