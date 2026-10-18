@@ -25,6 +25,7 @@
         "title": "Immich Guest Slideshow",
         "menu_options": {
           "general": "Réglages généraux",
+          "picpak": "Cadres PicPak",
           "add_room": "Ajouter une chambre",
           "remove_room": "Supprimer des chambres"
         }
@@ -37,6 +38,19 @@
           "rebuild_hours": "Rafraîchissement du cache en heures (0 = désactivé)",
           "permanent_persons": "Personnes permanentes (noms exacts ou ID de personne Immich, séparés par des virgules)",
           "min_photos": "Photos minimum par invité (en dessous, ses photos individuelles sont ajoutées et une réparation est créée)"
+        }
+      },
+      "picpak": {
+        "title": "Cadres e-ink PicPak",
+        "description": "Un cadre par lit : le cadre n° 1 suit le premier helper de la chambre, le n° 2 le second. Les URL à saisir dans chaque cadre s'obtiennent avec le service « PicPak : URL des cadres ».",
+        "data": {
+          "picpak_interval": "Minutes entre deux photos",
+          "picpak_photos": "Photos par cadre et par séjour",
+          "picpak_quiet": "Pause nocturne, ex. 23:00-07:00 (vide = aucune)",
+          "picpak_logo": "Logo affiché quand la chambre est libre (chemin d'un PNG)",
+          "picpak_title": "Titre du logo texte, si le fichier de logo est absent",
+          "picpak_subtitle": "Sous-titre du logo texte",
+          "picpak_base_url": "URL locale de Home Assistant vue par les cadres (vide = automatique)"
         }
       },
       "add_room": {
@@ -56,13 +70,26 @@
     "error": {
       "invalid_name": "Nom de chambre invalide",
       "room_exists": "Une chambre portant ce nom existe déjà",
-      "no_helpers": "Sélectionnez au moins un helper input_text"
+      "no_helpers": "Sélectionnez au moins un helper input_text",
+      "invalid_quiet": "Format attendu : HH:MM-HH:MM, ex. 23:00-07:00",
+      "invalid_base_url": "L'URL doit commencer par http:// ou https://"
     }
   },
   "entity": {
     "sensor": {
       "current_search": {
         "name": "Recherche courante"
+      },
+      "picpak_battery": {
+        "name": "Batterie"
+      },
+      "picpak_last_seen": {
+        "name": "Dernière connexion"
+      }
+    },
+    "image": {
+      "picpak_screen": {
+        "name": "Écran"
       }
     }
   },

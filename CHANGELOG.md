@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.6.0 — 2026-10-18
+
+### Cadres e-ink PicPak
+
+- Nouveau : l'intégration alimente des cadres **PicPak** (e-ink 4,2″,
+  4 couleurs) flashés avec le firmware open-PicPak « tirage Wi-Fi ». Un cadre
+  par lit ; un invité seul dans une chambre à deux cadres est montré sur les
+  deux, avec des photos différentes ; chambre libre → logo.
+- **50 photos par cadre et par séjour** (réglable), une nouvelle **toutes les
+  heures** (réglable), ou immédiatement sur un appui du bouton du cadre.
+  **Pause nocturne** facultative.
+- Photos affichées **en entier** (jamais rognées, bandes blanches si besoin) ;
+  conversion 4 couleurs identique à l'appli d'origine. Un logo PNG de
+  400×300 est affiché pleine page.
+- Vue HTTP protégée par un jeton : `/api/immich_guest_slideshow/picpak/<chambre>/<lit>`.
+  L'image suivante est préparée à l'avance ; un réveil sans changement reçoit
+  la même image, que le cadre n'affiche pas (économie de batterie).
+- Nouvelles entités par cadre : aperçu de l'écran, batterie, dernière
+  connexion.
+- Nouveaux services : `picpak_urls` (URL de chaque cadre) et `picpak_next`.
+- Nouvelle page d'options **Cadres PicPak**.
+- Interne : la répartition des photos par lit est mise en commun entre les
+  albums Immich et les cadres (`async_bed_playlists`), sans changement pour
+  `sync_albums`.
+
 ## 1.5.0 — 2026-10-17
 
 ### Personnes introuvables ou avec peu de photos : réparation guidée

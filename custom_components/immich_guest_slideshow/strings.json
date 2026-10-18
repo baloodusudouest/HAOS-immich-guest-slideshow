@@ -25,6 +25,7 @@
         "title": "Immich Guest Slideshow",
         "menu_options": {
           "general": "General settings",
+          "picpak": "PicPak frames",
           "add_room": "Add a room",
           "remove_room": "Remove rooms"
         }
@@ -37,6 +38,19 @@
           "rebuild_hours": "Cache refresh interval in hours (0 = disabled)",
           "permanent_persons": "Permanent persons (exact names or Immich person IDs, comma separated)",
           "min_photos": "Minimum photos per guest (below this, their own photos are added and a repair is raised)"
+        }
+      },
+      "picpak": {
+        "title": "PicPak e-ink frames",
+        "description": "One frame per bed: frame 1 follows the room's first helper, frame 2 the second. Get the URL to store in each frame with the \"PicPak: frame URLs\" service.",
+        "data": {
+          "picpak_interval": "Minutes between two photos",
+          "picpak_photos": "Photos per frame and per stay",
+          "picpak_quiet": "Night pause, e.g. 23:00-07:00 (empty = none)",
+          "picpak_logo": "Logo shown when the room is free (path to a PNG)",
+          "picpak_title": "Text logo title, when the logo file is missing",
+          "picpak_subtitle": "Text logo subtitle",
+          "picpak_base_url": "Local Home Assistant URL as seen by the frames (empty = automatic)"
         }
       },
       "add_room": {
@@ -56,13 +70,26 @@
     "error": {
       "invalid_name": "Invalid room name",
       "room_exists": "A room with this name already exists",
-      "no_helpers": "Select at least one input_text helper"
+      "no_helpers": "Select at least one input_text helper",
+      "invalid_quiet": "Expected format: HH:MM-HH:MM, e.g. 23:00-07:00",
+      "invalid_base_url": "The URL must start with http:// or https://"
     }
   },
   "entity": {
     "sensor": {
       "current_search": {
         "name": "Current search"
+      },
+      "picpak_battery": {
+        "name": "Battery"
+      },
+      "picpak_last_seen": {
+        "name": "Last seen"
+      }
+    },
+    "image": {
+      "picpak_screen": {
+        "name": "Screen"
       }
     }
   },

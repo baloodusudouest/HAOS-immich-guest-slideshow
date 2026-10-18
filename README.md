@@ -40,6 +40,7 @@ de la chambre concernée est vidé et reconstruit automatiquement.
 
 - `image.immich_chambre_d_ami`, `image.immich_chambre_stitch`, `image.immich_chambre_ado`
 - `sensor.immich_chambre_d_ami_current_search`, `sensor.immich_chambre_stitch_current_search`, `sensor.immich_chambre_ado_current_search`
+- par lit, les entités des cadres PicPak (voir plus bas)
 
 Le sensor expose en attributs les invités détectés, le nombre de photos en
 cache et la liste des recherches actives.
@@ -58,6 +59,74 @@ cache et la liste des recherches actives.
 
 Le cache est par ailleurs reconstruit automatiquement toutes les 6 heures
 (réglable, `0` pour désactiver) afin d'intégrer les nouvelles photos Immich.
+
+## Cadres e-ink PicPak
+
+L'intégration alimente des cadres **PicPak** (e-ink 4,2″, 400×300, 4 couleurs :
+noir, blanc, jaune, rouge) flashés avec le firmware communautaire
+[open-PicPak](https://github.com/GottZ/open-PicPak) muni du correctif
+« tirage Wi-Fi ». Le firmware d'origine n'est pas compatible : il ne sait
+recevoir des images qu'en Bluetooth, depuis l'appli du fabricant.
+
+**Un cadre par lit** : le cadre n° 1 d'une chambre suit son 1er helper, le n° 2
+le 2e.
+
+- **Deux invités** : chaque cadre montre son occupant.
+- **Un invité seul** : les deux cadres le montrent, avec des photos
+  **différentes** (tranches disjointes de la même sélection).
+- **Chambre libre** : le logo (fichier PNG des options, ou logo texte).
+
+Par séjour, chaque cadre reçoit **50 photos** (réglable), choisies avec la même
+logique que le diaporama (invité avec les propriétaires d'abord, puis ses
+photos individuelles). La photo change **toutes les heures** (réglable), ou
+tout de suite sur un appui du bouton du cadre. Une **pause nocturne**
+(ex. `23:00-07:00`) évite tout réveil inutile la nuit.
+
+Chaque photo est affichée **en entier**, jamais rognée : elle est réduite pour
+tenir dans 400×300, avec des bandes blanches si son format diffère (portrait
+notamment). La conversion en 4 couleurs reproduit exactement celle de l'appli
+d'origine (distance BT.601, tramage d'Atkinson).
+
+**Logo** : un PNG de exactement 400×300 est affiché pleine page tel quel (le
+composer directement dans les 4 couleurs de la dalle donne le rendu le plus
+net) ; une autre taille est centrée sur fond blanc. Le SVG n'est pas lu :
+convertissez-le en PNG.
+
+### Fonctionnement
+
+Le cadre dort, se réveille, télécharge
+`/api/immich_guest_slideshow/picpak/<chambre>/<lit>?k=<jeton>`, affiche
+l'image si elle a changé et se rendort pour la durée fixée par Home Assistant.
+Un réveil qui ne doit rien changer reçoit la même image : le cadre ne
+rafraîchit pas l'écran, ce qui économise la batterie. L'image suivante est
+préparée à l'avance pour répondre en quelques millisecondes.
+
+### Mise en place
+
+1. Options → **Cadres PicPak** : intervalle, nombre de photos, pause nocturne,
+   logo, URL locale de Home Assistant vue par les cadres (ex.
+   `http://192.168.1.29:8123` — une IP, le firmware ne résout pas les noms
+   `.local`).
+2. Action `immich_guest_slideshow.picpak_urls` (avec « renvoyer la réponse ») :
+   l'URL de chaque cadre, jeton compris. Ne la partagez pas.
+3. Flasher et configurer chaque cadre avec cette URL (paquet firmware fourni
+   séparément, script `picpak_installer.py`).
+
+### Entités par cadre
+
+- `image.picpak_<chambre>_<lit>` : aperçu de ce qu'affiche la dalle, avec ses
+  vraies couleurs ;
+- `sensor.picpak_<chambre>_<lit>_batterie` : batterie (%), avec en attributs la
+  tension, l'invité, la photo en cours, la cause du dernier réveil ;
+- `sensor.picpak_<chambre>_<lit>_derniere_connexion` : pour repérer un cadre
+  muet (batterie vide, hors de portée Wi-Fi).
+
+### Services
+
+- `immich_guest_slideshow.picpak_urls` — URL à enregistrer dans chaque cadre
+  (paramètre optionnel `base_url`).
+- `immich_guest_slideshow.picpak_next` — photo suivante au prochain réveil
+  (paramètres optionnels `room`, `bed`).
 
 ## Installation
 

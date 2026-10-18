@@ -28,10 +28,19 @@ async def async_get_config_entry_diagnostics(
             "photo_count": data.photo_count if data else 0,
             "active": data.active if data else False,
         }
+    picpak: dict[str, Any] = {}
+    manager = entry.runtime_data.picpak
+    if manager is not None:
+        # Le jeton d'accès des cadres n'apparaît jamais dans les diagnostics.
+        for key, frame in manager.frames.items():
+            data = frame.as_dict()
+            data["assets"] = len(frame.assets)
+            picpak[key] = data
     return {
         "entry": {
             "data": async_redact_data(dict(entry.data), TO_REDACT),
             "options": dict(entry.options),
         },
         "rooms": rooms,
+        "picpak": picpak,
     }

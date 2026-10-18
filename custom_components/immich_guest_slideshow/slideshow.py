@@ -227,6 +227,20 @@ class SlideshowEngine:
                 )
         return self._person_ids[ref]
 
+    async def async_person_id(self, ref: str) -> str | None:
+        """ID de personne Immich d'une saisie (liaison, UUID ou nom), mémoïsé."""
+        try:
+            return await self._resolve_person_id(ref)
+        except ImmichApiError as err:
+            _LOGGER.debug("[%s] Résolution de '%s' en échec: %s", self.room_id, ref, err)
+            return None
+
+    def display_name(self, ref: str | None) -> str | None:
+        """Nom Immich d'une saisie résolue (utile quand c'est un UUID)."""
+        if not ref:
+            return None
+        return self._person_names.get(ref, ref)
+
     def _labelled(self, combo: SearchCombo) -> SearchCombo:
         """Retourne ``combo`` avec des noms lisibles à la place des UUID."""
         display = tuple(self._person_names.get(n, n) for n in combo.names)
@@ -488,24 +502,33 @@ class SlideshowEngine:
             "ok": True,
         }
 
-    async def async_sync_albums(self, size: int) -> list[dict]:
-        """Synchronise un album Immich par lit occupé.
+    async def async_bed_playlists(
+        self, size: int, *, fill_empty: bool = False
+    ) -> list[tuple[str | None, list[str]]]:
+        """Sélection de photos par lit : ``[(invité, [asset_id, ...]), ...]``.
+
+        Une entrée par helper (donc par lit, donc par cadre photo), dans
+        l'ordre des helpers :
 
         - Deux invités : chaque lit reçoit les photos de son occupant.
-        - Un seul invité, deux lits : les deux albums puisent dans le même
+        - Un seul invité, plusieurs lits : tous les lits puisent dans le même
           ensemble, mais sur des tranches DISJOINTES après mélange, pour que
-          les deux cadres n'affichent jamais la même photo au même moment.
-        - Lit vide : album laissé intact.
+          les cadres n'affichent jamais la même photo au même moment. Chaque
+          lit porte alors le nom de cet invité.
+        - Lit vide (et pas d'occupant unique) : ``(None, [])``.
+
+        Args:
+            fill_empty: si une tranche se retrouve vide alors que l'invité a
+                des photos (moins de photos que de lits), elle reçoit tout
+                l'ensemble plutôt que rien. Utile aux cadres, qui doivent
+                montrer l'invité plutôt que l'écran « chambre libre ».
         """
         beds = self.get_guests_by_bed()
         occupied = [g for g in beds if g]
         if not occupied:
-            _LOGGER.debug("[%s] Aucun invité: albums inchangés", self.room_id)
-            return []
+            return [(None, []) for _ in beds]
 
-        results: list[dict] = []
-        distinct = {g for g in occupied}
-
+        distinct = set(occupied)
         if len(distinct) == 1 and len(beds) > 1:
             # Occupant unique : on mélange puis on découpe en tranches
             # disjointes. Un simple décalage d'indice ne suffirait pas — avec
@@ -516,8 +539,7 @@ class SlideshowEngine:
             random.shuffle(pool)
             # On découpe sur le nombre de LITS, pas sur le nombre de lits
             # occupés : un invité seul dans une chambre à deux cadres doit
-            # alimenter les deux, avec des photos différentes. Compter les
-            # occupants ne produisait qu'un seul album.
+            # alimenter les deux, avec des photos différentes.
             n_slots = len(beds)
             if len(pool) >= size * n_slots:
                 tranches = [
@@ -528,20 +550,35 @@ class SlideshowEngine:
                 tranches = [
                     pool[i * step:(i + 1) * step] for i in range(n_slots)
                 ]
-            for index, tranche in enumerate(tranches):
-                results.append(
-                    await self._async_upsert_album(index, guest, tranche)
-                )
-            return results
+            if fill_empty and pool:
+                tranches = [t or list(pool[:size]) for t in tranches]
+            return [(guest, tranche) for tranche in tranches]
 
-        for index, guest in enumerate(beds):
+        plans: list[tuple[str | None, list[str]]] = []
+        for guest in beds:
             if not guest:
+                plans.append((None, []))
                 continue
             pool = await self._async_assets_for_guest(guest)
             random.shuffle(pool)
-            results.append(
-                await self._async_upsert_album(index, guest, pool[:size])
-            )
+            plans.append((guest, pool[:size]))
+        return plans
+
+    async def async_sync_albums(self, size: int) -> list[dict]:
+        """Synchronise un album Immich par lit occupé.
+
+        La répartition des photos entre les lits est celle de
+        :meth:`async_bed_playlists`. Un lit vide garde son album intact.
+        """
+        plans = await self.async_bed_playlists(size)
+        if not any(guest for guest, _ in plans):
+            _LOGGER.debug("[%s] Aucun invité: albums inchangés", self.room_id)
+            return []
+        results: list[dict] = []
+        for index, (guest, asset_ids) in enumerate(plans):
+            if not guest:
+                continue
+            results.append(await self._async_upsert_album(index, guest, asset_ids))
         return results
 
     # ------------------------------------------------------------------ #

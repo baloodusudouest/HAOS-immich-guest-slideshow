@@ -4,8 +4,9 @@ L'URL et la clé API sont saisies par l'utilisateur et validées par un
 appel réel à l'API Immich. La clé n'apparaît jamais dans le code.
 
 Le flux d'options permet de régler le diaporama (intervalle, cache,
-personnes permanentes, rafraîchissement périodique) et de gérer les
-chambres (nom + helpers input_text) directement depuis l'interface.
+personnes permanentes, rafraîchissement périodique), les cadres e-ink PicPak,
+et de gérer les chambres (nom + helpers input_text) directement depuis
+l'interface.
 """
 from __future__ import annotations
 
@@ -38,6 +39,13 @@ from .const import (
     CONF_INTERVAL,
     CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
+    CONF_PICPAK_BASE_URL,
+    CONF_PICPAK_INTERVAL,
+    CONF_PICPAK_LOGO,
+    CONF_PICPAK_PHOTOS,
+    CONF_PICPAK_QUIET,
+    CONF_PICPAK_SUBTITLE,
+    CONF_PICPAK_TITLE,
     CONF_REBUILD_HOURS,
     CONF_ROOMS,
     CONF_URL,
@@ -45,12 +53,21 @@ from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_MIN_PHOTOS,
     DEFAULT_PERMANENT_PERSONS,
+    DEFAULT_PICPAK_BASE_URL,
+    DEFAULT_PICPAK_INTERVAL,
+    DEFAULT_PICPAK_LOGO,
+    DEFAULT_PICPAK_PHOTOS,
+    DEFAULT_PICPAK_QUIET,
+    DEFAULT_PICPAK_SUBTITLE,
+    DEFAULT_PICPAK_TITLE,
     DEFAULT_REBUILD_HOURS,
     DEFAULT_ROOMS,
     DOMAIN,
     KEY_HELPERS,
     KEY_NAME,
+    MAX_ALBUM_SIZE,
 )
+from .picpak import parse_quiet
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +144,7 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
         """Menu principal des options."""
         return self.async_show_menu(
             step_id="init",
-            menu_options=["general", "add_room", "remove_room"],
+            menu_options=["general", "picpak", "add_room", "remove_room"],
         )
 
     # ------------------------------------------------------------------ #
@@ -177,6 +194,63 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
             }
         )
         return self.async_show_form(step_id="general", data_schema=schema)
+
+    # ------------------------------------------------------------------ #
+    # Cadres PicPak
+    # ------------------------------------------------------------------ #
+    async def async_step_picpak(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Rythme, sélection, pause nocturne et écran « chambre libre »."""
+        errors: dict[str, str] = {}
+        opts = self.options
+        if user_input is not None:
+            quiet = (user_input.get(CONF_PICPAK_QUIET) or "").strip()
+            base_url = (user_input.get(CONF_PICPAK_BASE_URL) or "").strip().rstrip("/")
+            if quiet and parse_quiet(quiet) is None:
+                errors[CONF_PICPAK_QUIET] = "invalid_quiet"
+            elif base_url and not base_url.startswith(("http://", "https://")):
+                errors[CONF_PICPAK_BASE_URL] = "invalid_base_url"
+            else:
+                self.options[CONF_PICPAK_INTERVAL] = user_input[CONF_PICPAK_INTERVAL]
+                self.options[CONF_PICPAK_PHOTOS] = user_input[CONF_PICPAK_PHOTOS]
+                self.options[CONF_PICPAK_QUIET] = quiet
+                self.options[CONF_PICPAK_LOGO] = (
+                    user_input.get(CONF_PICPAK_LOGO) or ""
+                ).strip()
+                self.options[CONF_PICPAK_TITLE] = (
+                    user_input.get(CONF_PICPAK_TITLE) or ""
+                ).strip()
+                self.options[CONF_PICPAK_SUBTITLE] = (
+                    user_input.get(CONF_PICPAK_SUBTITLE) or ""
+                ).strip()
+                self.options[CONF_PICPAK_BASE_URL] = base_url
+                return self.async_create_entry(title="", data=self.options)
+            opts = {**opts, **user_input}
+
+        def _text(key: str, default: str) -> vol.Optional:
+            return vol.Optional(
+                key, description={"suggested_value": opts.get(key, default)}
+            )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_PICPAK_INTERVAL,
+                    default=opts.get(CONF_PICPAK_INTERVAL, DEFAULT_PICPAK_INTERVAL),
+                ): vol.All(vol.Coerce(int), vol.Range(min=15, max=720)),
+                vol.Required(
+                    CONF_PICPAK_PHOTOS,
+                    default=opts.get(CONF_PICPAK_PHOTOS, DEFAULT_PICPAK_PHOTOS),
+                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_ALBUM_SIZE)),
+                _text(CONF_PICPAK_QUIET, DEFAULT_PICPAK_QUIET): str,
+                _text(CONF_PICPAK_LOGO, DEFAULT_PICPAK_LOGO): str,
+                _text(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE): str,
+                _text(CONF_PICPAK_SUBTITLE, DEFAULT_PICPAK_SUBTITLE): str,
+                _text(CONF_PICPAK_BASE_URL, DEFAULT_PICPAK_BASE_URL): str,
+            }
+        )
+        return self.async_show_form(step_id="picpak", data_schema=schema, errors=errors)
 
     # ------------------------------------------------------------------ #
     # Ajout d'une chambre
