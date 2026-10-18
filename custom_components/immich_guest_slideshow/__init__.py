@@ -2,6 +2,8 @@
 
 Crée un moteur de diaporama indépendant par chambre, écoute les helpers
 input_text (invités) et expose des entités image + sensor par chambre.
+
+Alimente aussi les cadres e-ink PicPak (un par lit) : voir :mod:`.picpak`.
 """
 from __future__ import annotations
 
@@ -39,6 +41,8 @@ from .api import (
     normalize_name,
 )
 from .const import (
+    ATTR_BASE_URL,
+    ATTR_BED,
     ATTR_NAME,
     ATTR_PERSON_ID,
     ATTR_ROOM,
@@ -48,6 +52,13 @@ from .const import (
     CONF_INTERVAL,
     CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
+    CONF_PICPAK_BASE_URL,
+    CONF_PICPAK_INTERVAL,
+    CONF_PICPAK_LOGO,
+    CONF_PICPAK_PHOTOS,
+    CONF_PICPAK_QUIET,
+    CONF_PICPAK_SUBTITLE,
+    CONF_PICPAK_TITLE,
     CONF_REBUILD_HOURS,
     CONF_ROOMS,
     CONF_URL,
@@ -56,6 +67,13 @@ from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_MIN_PHOTOS,
     DEFAULT_PERMANENT_PERSONS,
+    DEFAULT_PICPAK_BASE_URL,
+    DEFAULT_PICPAK_INTERVAL,
+    DEFAULT_PICPAK_LOGO,
+    DEFAULT_PICPAK_PHOTOS,
+    DEFAULT_PICPAK_QUIET,
+    DEFAULT_PICPAK_SUBTITLE,
+    DEFAULT_PICPAK_TITLE,
     DEFAULT_REBUILD_HOURS,
     DEFAULT_ROOMS,
     DOMAIN,
@@ -64,18 +82,25 @@ from .const import (
     MAX_ALBUM_SIZE,
     SERVICE_LINK_PERSON,
     SERVICE_NEXT,
+    SERVICE_PICPAK_NEXT,
+    SERVICE_PICPAK_URLS,
     SERVICE_REFRESH,
     SERVICE_SYNC_ALBUMS,
     SERVICE_UNLINK_PERSON,
 )
 from .coordinator import RoomCoordinator
 from .person_links import PersonLinks
+from .picpak import PicPakFrameView, PicPakManager, PicPakSettings, parse_quiet
 from .problems import ProblemReporter
 from .slideshow import SlideshowEngine
 
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [Platform.IMAGE, Platform.SENSOR]
+
+# La vue HTTP des cadres est globale (une seule par instance de HA) : elle
+# retrouve la bonne config entry grâce au jeton de l'URL.
+_PICPAK_VIEW_KEY = f"{DOMAIN}_picpak_view"
 
 type ImmichConfigEntry = ConfigEntry[ImmichRuntimeData]
 
@@ -88,6 +113,7 @@ class ImmichRuntimeData:
     links: PersonLinks
     reporter: ProblemReporter
     coordinators: dict[str, RoomCoordinator] = field(default_factory=dict)
+    picpak: PicPakManager | None = None
 
     async def async_rebuild_all(self) -> None:
         """Reconstruit toutes les chambres (après un changement de liaison)."""
@@ -140,6 +166,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         for helper in room[KEY_HELPERS]:
             helper_to_room[helper] = room_id
 
+    # --- Cadres PicPak ---------------------------------------------------- #
+    picpak = PicPakManager(
+        hass,
+        entry.entry_id,
+        api,
+        {room_id: c.engine for room_id, c in runtime.coordinators.items()},
+        _picpak_settings(entry),
+    )
+    await picpak.async_load()
+    runtime.picpak = picpak
+    if not hass.data.get(_PICPAK_VIEW_KEY):
+        hass.http.register_view(PicPakFrameView())
+        hass.data[_PICPAK_VIEW_KEY] = True
+
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
     _async_cleanup_stale_devices(hass, entry, set(rooms))
@@ -156,6 +196,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         if room_id is None:
             return
         _LOGGER.debug("Helper %s modifié -> rebuild %s", entity_id, room_id)
+        picpak.async_room_changed(room_id)
         await runtime.coordinators[room_id].async_rebuild_and_refresh()
 
     entry.async_on_unload(
@@ -245,6 +286,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
             await runtime.async_rebuild_all()
         return {"removed": removed}
 
+    async def _handle_picpak_urls(call: ServiceCall) -> ServiceResponse:
+        """Service immich_guest_slideshow.picpak_urls.
+
+        Renvoie l'URL à enregistrer dans chaque cadre (commande SETURL de la
+        console du firmware). L'URL contient le jeton d'accès : elle n'est
+        exposée nulle part ailleurs (ni attribut, ni journal).
+        """
+        return {"frames": picpak.urls(call.data.get(ATTR_BASE_URL))}
+
+    async def _handle_picpak_next(call: ServiceCall) -> ServiceResponse:
+        """Service immich_guest_slideshow.picpak_next.
+
+        Les cadres ne peuvent pas être réveillés à distance : la photo
+        suivante s'affichera à leur prochain réveil (ou tout de suite sur un
+        appui de leur bouton).
+        """
+        room = call.data.get(ATTR_ROOM)
+        if room and room not in runtime.coordinators:
+            raise ServiceValidationError(f"Chambre inconnue : {room}")
+        return {"frames": picpak.request_next(room, call.data.get(ATTR_BED))}
+
     service_schema = vol.Schema({vol.Optional(ATTR_ROOM): cv.string})
     hass.services.async_register(
         DOMAIN, SERVICE_REFRESH, _handle_refresh, schema=service_schema
@@ -286,11 +348,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         supports_response=SupportsResponse.OPTIONAL,
     )
 
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_PICPAK_URLS,
+        _handle_picpak_urls,
+        schema=vol.Schema({vol.Optional(ATTR_BASE_URL): cv.string}),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_PICPAK_NEXT,
+        _handle_picpak_next,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_ROOM): cv.string,
+                vol.Optional(ATTR_BED): vol.All(vol.Coerce(int), vol.Range(min=1)),
+            }
+        ),
+        supports_response=SupportsResponse.OPTIONAL,
+    )
+
     # Recharger si les options changent
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    picpak.async_start()
     return True
+
+
+def _picpak_settings(entry: ConfigEntry) -> PicPakSettings:
+    """Réglages des cadres PicPak depuis les options."""
+    opts = entry.options
+    return PicPakSettings(
+        interval_min=int(opts.get(CONF_PICPAK_INTERVAL, DEFAULT_PICPAK_INTERVAL)),
+        photos=int(opts.get(CONF_PICPAK_PHOTOS, DEFAULT_PICPAK_PHOTOS)),
+        quiet=parse_quiet(opts.get(CONF_PICPAK_QUIET, DEFAULT_PICPAK_QUIET)),
+        logo_path=str(opts.get(CONF_PICPAK_LOGO, DEFAULT_PICPAK_LOGO) or ""),
+        title=str(opts.get(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE) or ""),
+        subtitle=str(opts.get(CONF_PICPAK_SUBTITLE, DEFAULT_PICPAK_SUBTITLE) or ""),
+        base_url=str(opts.get(CONF_PICPAK_BASE_URL, DEFAULT_PICPAK_BASE_URL) or ""),
+    )
 
 
 def _async_cleanup_stale_devices(
@@ -319,10 +416,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> b
         SERVICE_SYNC_ALBUMS,
         SERVICE_LINK_PERSON,
         SERVICE_UNLINK_PERSON,
+        SERVICE_PICPAK_URLS,
+        SERVICE_PICPAK_NEXT,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if unload_ok and entry.runtime_data.picpak is not None:
+        await entry.runtime_data.picpak.async_unload()
     if unload_ok:
         # Retire les éléments de Réparations / notifications de cette entrée.
         entry.runtime_data.reporter.async_clear_all()
