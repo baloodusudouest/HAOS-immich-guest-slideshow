@@ -224,7 +224,7 @@ class PicPakManager:
 
     @callback
     def async_start(self) -> None:
-        """Prépare en arrière-plan l'image affichée par chaque cadre.
+        """Prépare en arrière-plan les sélections et l'image de chaque cadre.
 
         Après un redémarrage, les tampons rendus sont perdus : on les refait
         pour que les entités image montrent tout de suite le contenu des
@@ -232,6 +232,11 @@ class PicPakManager:
         """
         async def _warm() -> None:
             await self._async_logo()
+            # Sélections à jour dès le démarrage (et non au premier réveil) :
+            # l'aperçu d'un cadre pas encore réveillé montre ainsi la bonne
+            # image, et la première requête du cadre répond sans attendre Immich.
+            for room_id in list(self._engines):
+                await self.async_ensure_room(room_id)
             for key, frame in self.frames.items():
                 if frame.shown and frame.shown != LOGO:
                     body = await self._async_render_asset(frame.shown, frame.person_id)
@@ -317,6 +322,10 @@ class PicPakManager:
                 )
             self._schedule_save()
         for key in keys:
+            if key not in self._last_body:
+                # Pas encore de tampon reçu : l'aperçu montre l'image à venir,
+                # qui vient de changer.
+                self._body_rev[key] = self._body_rev.get(key, 0) + 1
             self._prefetch(key)
             self._notify(key)
 
@@ -553,24 +562,59 @@ class PicPakManager:
     # ------------------------------------------------------------------ #
     # Aperçu et URL
     # ------------------------------------------------------------------ #
+    def _upcoming_asset(self, frame: FrameState) -> str | None:
+        """Photo que le cadre affichera (ou affiche) : utile avant son premier
+        réveil, ou après un redémarrage de HA tant que le rendu n'est pas fait."""
+        if not frame.assets:
+            return None
+        if frame.shown and frame.shown in frame.assets:
+            return frame.shown
+        if 0 <= frame.index < len(frame.assets):
+            return frame.assets[frame.index]
+        return frame.assets[0]
+
     async def async_preview(self, key: str) -> bytes | None:
-        """PNG de ce qu'affiche le cadre (dernier tampon envoyé)."""
+        """PNG de l'écran du cadre.
+
+        - Le cadre s'est déjà connecté : son dernier tampon reçu.
+        - Sinon (cadre pas encore flashé, ou HA vient de redémarrer) : l'image
+          qu'il affichera à son prochain réveil — la photo prévue, ou le logo
+          si la chambre est libre.
+        """
+        frame = self.frames.get(key)
+        if frame is None:
+            return None
         body = self._last_body.get(key)
-        if body is None:
-            frame = self.frames.get(key)
-            if frame is None:
+        if body is not None:
+            if key not in self._preview_png:
+                self._preview_png[key] = await self.hass.async_add_executor_job(
+                    picpak_render.preview_png, body
+                )
+            return self._preview_png[key]
+
+        asset_id = self._upcoming_asset(frame)
+        source = asset_id or LOGO
+        cache_key = f"upcoming:{source}"
+        if cache_key in self._preview_png:
+            return self._preview_png[cache_key]
+        if asset_id is None:
+            body = await self._async_logo()
+        else:
+            task = self._render_task(asset_id, frame.person_id)
+            try:
+                body = await asyncio.wait_for(asyncio.shield(task), 30)
+            except TimeoutError:
+                body = None
+            if body is None:
+                _LOGGER.debug("PicPak %s : aperçu de %s indisponible", key, asset_id)
                 return None
-            if frame.shown and frame.shown != LOGO and frame.shown in self._rendered:
-                body = self._rendered[frame.shown]
-            elif frame.shown == LOGO or not frame.assets:
-                body = await self._async_logo()
-            else:
-                return None
-        if key not in self._preview_png:
-            self._preview_png[key] = await self.hass.async_add_executor_job(
-                picpak_render.preview_png, body
-            )
-        return self._preview_png[key]
+        png = await self.hass.async_add_executor_job(picpak_render.preview_png, body)
+        # Aperçus « à venir » : un par source, bornés comme les rendus.
+        stale = [k for k in self._preview_png if k.startswith("upcoming:")]
+        for k in stale[: max(0, len(stale) - 2 * len(self.frames))]:
+            del self._preview_png[k]
+        self._preview_png[cache_key] = png
+        return png
 
     def base_url(self, override: str | None = None) -> str | None:
         """URL locale de Home Assistant telle que le cadre doit l'appeler."""
