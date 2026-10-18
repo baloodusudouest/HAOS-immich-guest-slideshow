@@ -350,3 +350,42 @@ async def test_unreachable_photo_is_skipped(
         FakeImmich.fail = set()
         await hass.config_entries.async_unload(entry.entry_id)
         patcher.stop()
+
+
+async def test_screen_preview_before_first_wake(
+    hass: HomeAssistant, hass_client
+) -> None:
+    """Avant tout réveil du cadre, l'entité image montre l'image à venir."""
+    FakeImmich.photos = {frozenset([PEOPLE["Alexia"], PEOPLE["Propriétaire 1"]]): 4}
+    FakeImmich.fail = set()
+    entry, patcher = await _setup(hass, "Alexia")
+    try:
+        manager = entry.runtime_data.picpak
+        # Attend la sélection lancée au démarrage (tâche d'arrière-plan).
+        await manager.async_ensure_room("chambre_test")
+        await hass.async_block_till_done()
+        client = await hass_client()
+        state = hass.states.get("image.picpak_chambre_test_1")
+        resp = await client.get(state.attributes["entity_picture"])
+        assert resp.status == 200
+        assert resp.content_type == "image/png"
+        manager = entry.runtime_data.picpak
+        frame = manager.frames["chambre_test/1"]
+        assert frame.last_seen is None  # jamais réveillé
+        assert frame.assets  # sélection faite dès le démarrage
+        rendered = await manager._async_render_asset(frame.assets[0], None)
+        expected = pr.preview_png(rendered)
+        assert await resp.read() == expected
+
+        # Chambre libre : le logo
+        hass.states.async_set(HELPER_1, "")
+        await hass.async_block_till_done()
+        await manager.async_ensure_room("chambre_test")
+        await hass.async_block_till_done()
+        state = hass.states.get("image.picpak_chambre_test_1")
+        resp = await client.get(state.attributes["entity_picture"])
+        assert resp.status == 200
+        assert await resp.read() == pr.preview_png(pr.render_logo(None, "Bienvenue", ""))
+    finally:
+        await hass.config_entries.async_unload(entry.entry_id)
+        patcher.stop()
