@@ -384,8 +384,60 @@ def _wordmark(title: str, subtitle: str = "") -> Image.Image:
     return img
 
 
+CAPTION_BAND = 30  # hauteur de la légende en bas du logo
+
+
+def _add_caption(img: Image.Image, caption: str) -> Image.Image:
+    """Réduit le logo pour libérer une bande en bas et y écrit ``caption``.
+
+    Une ou deux lignes (séparées par « \n ») : la 1re en gras, la 2e plus
+    petite. Le logo garde ses proportions et la couleur de son fond (prise
+    dans le coin) ; la légende est en jaune sur fond sombre, en noir sur fond
+    clair.
+    """
+    lines = [ln.strip() for ln in caption.split("\n") if ln.strip()][:2]
+    if not lines:
+        return img
+    bg = img.getpixel((0, 0))
+    luma = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
+    ink = PALETTE[YELLOW] if luma < 128 else PALETTE[BLACK]
+    band = CAPTION_BAND if len(lines) == 1 else CAPTION_BAND + 20
+    area = (FRAME_W, FRAME_H - band)
+    scale = min(area[0] / img.width, area[1] / img.height)
+    small = img.resize(
+        (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
+        Image.Resampling.LANCZOS,
+    )
+    out = Image.new("RGB", (FRAME_W, FRAME_H), bg)
+    out.paste(small, ((FRAME_W - small.width) // 2, (area[1] - small.height) // 2))
+    draw = ImageDraw.Draw(out)
+
+    def fit(text: str, sizes: tuple[int, ...], bold: bool):
+        for size in sizes:
+            font = _font(size, bold=bold)
+            box = draw.textbbox((0, 0), text, font=font)
+            if box[2] - box[0] <= FRAME_W - 16:
+                break
+        return font, box
+
+    fonts = [fit(lines[0], (20, 18, 16, 14, 12), True)]
+    if len(lines) > 1:
+        fonts.append(fit(lines[1], (16, 14, 12), False))
+    gap = 4
+    heights = [b[3] - b[1] for _, b in fonts]
+    y = area[1] + (band - sum(heights) - gap * (len(lines) - 1)) / 2
+    for text, (font, box), h in zip(lines, fonts, heights, strict=True):
+        tw = box[2] - box[0]
+        draw.text(((FRAME_W - tw) / 2 - box[0], y - box[1]), text, font=font, fill=ink)
+        y += h + gap
+    return out
+
+
 def render_logo(
-    path: str | None = None, title: str = "Bienvenue", subtitle: str = ""
+    path: str | None = None,
+    title: str = "Bienvenue",
+    subtitle: str = "",
+    caption: str | None = None,
 ) -> bytes:
     """Écran « chambre libre » : le logo, sans tramage (aplats nets).
 
@@ -393,6 +445,9 @@ def render_logo(
     exactement 400×300 est affichée pleine page, telle quelle ; sinon elle est
     centrée sur fond blanc sans être déformée ni rognée. Sans fichier lisible,
     un logo typographique est dessiné avec ``title`` et ``subtitle``.
+
+    ``caption`` : légende écrite tout en bas (ex. « Chambre d'ami invité
+    N°1 ») ; le logo est alors réduit pour lui laisser la place.
     """
     img: Image.Image | None = None
     if path and os.path.isfile(path):
@@ -415,4 +470,6 @@ def render_logo(
             img = None
     if img is None:
         img = _wordmark(title, subtitle)
+    if caption:
+        img = _add_caption(img, caption.strip())
     return pack(quantize(img, dither=False))

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.8.2 — 2026-10-19
+
+- Cadres PicPak : le logo porte en bas le nom de la chambre et le numéro du
+  cadre (« Chambre d'ami invité N°1 »). Le logo est réduit pour laisser la
+  place à la légende, écrite en jaune sur fond sombre, en noir sur fond clair.
+- Nouvelle option « Logo du cadre n°2 » : un 2e logo pour les cadres n°2
+  (et 4…) ; vide, ils reprennent le logo du cadre n°1.
+- Si un séjour est programmé dans le calendrier de la chambre, la légende
+  affiche à la place **le nom de l'invité du cadre et ses dates**, sur deux
+  lignes (« Corinne Jacquouton / ven. 23 → sam. 24 oct. »). Le nom vient du
+  helper du lit, à défaut du titre de l'événement correspondant.
+
 ## 1.8.1 — 2026-10-19
 
 - Le jour de départ est le dernier jour couvert par l'événement dans le
