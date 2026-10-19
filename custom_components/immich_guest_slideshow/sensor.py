@@ -152,7 +152,12 @@ class PicPakBatterySensor(_PicPakSensor):
             "photo": (frame.index + 1) if count and frame.index >= 0 else None,
             "photos": count,
             "asset_id": frame.shown if frame.shown != "__logo__" else None,
-            "affichage": "logo" if not count else "photos",
+            "affichage": (
+                "logo" if not count
+                else "logo (hors séjour)" if frame.in_stay is False
+                else "photos"
+            ),
+            "sejour_en_cours": frame.in_stay,
             "cause_reveil": frame.wake,
             "prochain_reveil_s": frame.next_wake_s,
             "reveils": frame.requests,
