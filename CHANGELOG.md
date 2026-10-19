@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.7.0 — 2026-10-19
+
+### Sélection des photos par niveaux de priorité
+
+Pour chaque invité, les photos sont choisies dans cet ordre, jusqu'au nombre
+voulu (50 par cadre ou par album, taille du cache pour le diaporama) :
+
+1. l'invité avec l'un des propriétaires, l'autre, ou les deux ;
+2. s'il manque des photos : les invités de la chambre **ensemble** ;
+3. s'il en manque encore : toutes les autres photos de l'invité.
+
+- S'applique partout : diaporama des chambres, cadres PicPak et albums
+  Immich (`sync_albums`).
+- Deux invités : chaque cadre montre son occupant ; les photos où ils sont
+  ensemble sont **réparties** entre les deux cadres, sans doublon.
+- Un invité seul dans une chambre à deux cadres : les deux le montrent, avec
+  des photos différentes, ses photos avec les propriétaires en premier.
+- Les recherches ne sont faites qu'au besoin : si le niveau 1 suffit, Immich
+  n'est pas interrogé pour les suivants.
+- « Photos minimum par invité » ne sert plus qu'aux signalements
+  (Réparations) : les photos seules complètent désormais toujours la
+  sélection quand elle est incomplète.
+
 ## 1.6.2 — 2026-10-19
 
 - Cadres PicPak : les photos **remplissent tout l'écran** (plus de bandes
