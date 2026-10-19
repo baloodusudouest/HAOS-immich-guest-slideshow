@@ -305,13 +305,17 @@ def render_photo(jpeg: bytes, box: Box | None = None) -> bytes:
     return pack(quantize(img, dither=True))
 
 
+# Polices livrées avec l'intégration : Home Assistant OS n'en installe aucune,
+# et la police par défaut de Pillow n'a pas les lettres accentuées (« invité »
+# s'affichait « invit□ »).
+_FONT_DIR = os.path.join(os.path.dirname(__file__), "fonts")
+
+
 def _font(size: int, bold: bool = False) -> ImageFont.ImageFont:
-    """Police vectorielle si disponible, sinon la police bitmap de Pillow."""
-    candidates = (
-        ["DejaVuSerif-Bold.ttf", "DejaVuSans-Bold.ttf"]
-        if bold
-        else ["DejaVuSerif.ttf", "DejaVuSans.ttf"]
-    )
+    """Police avec accents : celle de l'intégration, sinon celle du système."""
+    name = "DejaVuSerif-Bold.ttf" if bold else "DejaVuSerif.ttf"
+    candidates = [os.path.join(_FONT_DIR, name), name]
+    candidates.append("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")
     for name in candidates:
         try:
             return ImageFont.truetype(name, size)
