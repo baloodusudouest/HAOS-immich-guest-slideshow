@@ -360,7 +360,7 @@ async def test_two_guests_and_checkout_shows_logo(
         hass.states.async_set(HELPER_2, "")
         await hass.async_block_till_done()
         logo = await (await client.get(_path(urls[1]))).read()
-        assert logo == pr.render_logo(None, "Bienvenue", "")
+        assert logo == pr.render_logo(None, "Bienvenue", "", "Chambre test invité N°1")
         assert manager.frames["chambre_test/1"].assets == []
     finally:
         await hass.config_entries.async_unload(entry.entry_id)
@@ -429,7 +429,7 @@ async def test_screen_preview_before_first_wake(
         state = hass.states.get("image.picpak_chambre_test_1")
         resp = await client.get(state.attributes["entity_picture"])
         assert resp.status == 200
-        assert await resp.read() == pr.preview_png(pr.render_logo(None, "Bienvenue", ""))
+        assert await resp.read() == pr.preview_png(pr.render_logo(None, "Bienvenue", "", "Chambre test invité N°1"))
     finally:
         await hass.config_entries.async_unload(entry.entry_id)
         patcher.stop()
@@ -512,7 +512,7 @@ async def test_logo_until_the_stay_starts(
         # Lundi : séjour programmé mais pas commencé -> logo
         resp = await client.get(_path(urls[1]))
         logo = await resp.read()
-        assert logo == pr.render_logo(None, "Bienvenue", "")
+        assert logo == pr.render_logo(None, "Bienvenue", "", "Chambre test invité N°1")
         assert frame.shown == "__logo__" and frame.in_stay is False
         assert frame.index == -1  # la rotation n'a pas commencé
         assert int(resp.headers["X-Next-Wake-Seconds"]) == 3600
@@ -553,7 +553,7 @@ async def test_no_calendar_shows_photos_right_away(
         urls = await _urls(hass)
         client = await hass_client_no_auth()
         body = await (await client.get(_path(urls[1]))).read()
-        assert body != pr.render_logo(None, "Bienvenue", "")
+        assert body != pr.render_logo(None, "Bienvenue", "", "Chambre test invité N°1")
         assert entry.runtime_data.picpak.frames["chambre_test/1"].in_stay is None
     finally:
         await hass.config_entries.async_unload(entry.entry_id)
@@ -583,7 +583,7 @@ async def test_reset_button_shows_logo(
     try:
         urls = await _urls(hass)
         client = await hass_client_no_auth()
-        logo = pr.render_logo(None, "Bienvenue", "")
+        logo = pr.render_logo(None, "Bienvenue", "", "Chambre test invité N°1")
         assert await (await client.get(_path(urls[1]))).read() != logo
 
         hass.states.async_set(
@@ -591,7 +591,9 @@ async def test_reset_button_shows_logo(
         )
         await hass.async_block_till_done()
         assert await (await client.get(_path(urls[1]))).read() == logo
-        assert await (await client.get(_path(urls[2]))).read() == logo
+        assert await (await client.get(_path(urls[2]))).read() == pr.render_logo(
+            None, "Bienvenue", "", "Chambre test invité N°2"
+        )
 
         # Nouvel invité : la réinitialisation est levée
         hass.states.async_set(HELPER_1, "Bruno")
@@ -602,3 +604,19 @@ async def test_reset_button_shows_logo(
     finally:
         await hass.config_entries.async_unload(entry.entry_id)
         patcher.stop()
+
+
+def test_logo_caption_is_drawn_at_the_bottom(tmp_path) -> None:
+    """Logo pleine page sur fond noir : légende jaune dans la bande du bas."""
+    logo = Image.new("RGB", (400, 300), (0, 0, 0))
+    logo.paste((255, 255, 0), (100, 0, 300, 300))  # bande jaune sur toute la hauteur
+    path = tmp_path / "logo.png"
+    logo.save(path)
+    plain = pr.unpack(pr.render_logo(str(path)))
+    captioned = pr.unpack(pr.render_logo(str(path), caption="Chambre d'ami invité N°1"))
+    assert plain != captioned
+    band = captioned[(300 - pr.CAPTION_BAND) * 400:]
+    # La bande du bas contient du texte jaune sur le fond noir…
+    assert pr.YELLOW in band and pr.BLACK in band
+    # … et le logo réduit ne déborde pas dedans (les coins restent noirs).
+    assert band[0] == pr.BLACK and band[-1] == pr.BLACK

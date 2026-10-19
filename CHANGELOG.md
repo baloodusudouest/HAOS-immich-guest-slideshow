@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.8.2 — 2026-10-19
+
+- Cadres PicPak : le logo porte en bas le nom de la chambre et le numéro du
+  cadre (« Chambre d'ami invité N°1 »). Le logo est réduit pour laisser la
+  place à la légende, écrite en jaune sur fond sombre, en noir sur fond clair.
+
 ## 1.8.1 — 2026-10-19
 
 - Le jour de départ est le dernier jour couvert par l'événement dans le
