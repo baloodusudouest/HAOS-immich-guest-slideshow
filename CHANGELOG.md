@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.8.0 — 2026-10-19
+
+### Cadres PicPak : photos seulement pendant le séjour
+
+- Les cadres n'affichent les photos de l'invité **que pendant son séjour**,
+  d'après le calendrier de la chambre (`calendar.<chambre>`, ex.
+  `calendar.chambre_ami`) : du jour d'arrivée à **9 h** (réglable : option
+  « Heure de début des photos le jour d'arrivée ») jusqu'à la **fin du jour
+  de départ**. Avant et après : le logo.
+- Le jour de départ est la date de fin de l'événement ; pour un événement
+  « journée entière » (fin exclusive), c'est la date de départ des
+  réservations (nuit du samedi = samedi → dimanche).
+- Le cadre se réveille juste après le début du séjour pour passer aux photos
+  à l'heure.
+- Sans calendrier pour la chambre, comportement inchangé : l'invité est montré
+  dès qu'il est renseigné. Le diaporama des chambres n'est pas concerné.
+- Nouvel attribut `sejour_en_cours` sur le capteur de batterie de chaque
+  cadre.
+
 ## 1.7.0 — 2026-10-19
 
 ### Sélection des photos par niveaux de priorité

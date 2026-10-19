@@ -53,6 +53,7 @@ from .const import (
     CONF_INTERVAL,
     CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
+    CONF_PICPAK_ARRIVAL_HOUR,
     CONF_PICPAK_BASE_URL,
     CONF_PICPAK_INTERVAL,
     CONF_PICPAK_LOGO,
@@ -68,6 +69,7 @@ from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_MIN_PHOTOS,
     DEFAULT_PERMANENT_PERSONS,
+    DEFAULT_PICPAK_ARRIVAL_HOUR,
     DEFAULT_PICPAK_BASE_URL,
     DEFAULT_PICPAK_INTERVAL,
     DEFAULT_PICPAK_LOGO,
@@ -397,6 +399,9 @@ def _picpak_settings(entry: ConfigEntry) -> PicPakSettings:
         title=str(opts.get(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE) or ""),
         subtitle=str(opts.get(CONF_PICPAK_SUBTITLE, DEFAULT_PICPAK_SUBTITLE) or ""),
         base_url=str(opts.get(CONF_PICPAK_BASE_URL, DEFAULT_PICPAK_BASE_URL) or ""),
+        arrival_hour=int(
+            opts.get(CONF_PICPAK_ARRIVAL_HOUR, DEFAULT_PICPAK_ARRIVAL_HOUR)
+        ),
     )
 
 

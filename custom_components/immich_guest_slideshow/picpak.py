@@ -18,6 +18,11 @@ Toute l'intelligence est ici, côté Home Assistant :
 - **pause nocturne** facultative : pas de changement de photo la nuit, le
   cadre dort jusqu'à la fin de la pause ;
 - **chambre libre** : le logo, statique, donc jamais ré-affiché ;
+- **séjour pas encore commencé** (ou terminé) : le logo aussi. Les photos ne
+  s'affichent que pendant le séjour, d'après le calendrier de la chambre
+  (``calendar.<chambre>``) : du jour d'arrivée à l'heure d'arrivée (9 h par
+  défaut) jusqu'à la fin du jour de départ. Sans calendrier, l'invité est
+  montré dès qu'il est renseigné ;
 - **rendu** : photo recadrée pour remplir l'écran, centrée sur le visage de
   l'invité (visages détectés par Immich), réduite aux 4 couleurs de la dalle
   (voir :mod:`.picpak_render`). Le rendu de la photo
@@ -36,7 +41,7 @@ import os
 import re
 import secrets
 from dataclasses import dataclass, field
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web
@@ -52,6 +57,7 @@ from . import picpak_render
 from .api import ImmichApiClient, ImmichApiError
 from .const import (
     DOMAIN,
+    PICPAK_CALENDAR,
     PICPAK_URL_MAX,
     PICPAK_URL_PATH,
     SIGNAL_PICPAK_UPDATE,
@@ -111,6 +117,80 @@ def quiet_remaining(now: datetime, quiet: tuple[time, time] | None) -> float | N
     return (end_dt - now).total_seconds()
 
 
+# --------------------------------------------------------------------------- #
+# Période de séjour (calendrier de la chambre)
+# --------------------------------------------------------------------------- #
+CALENDAR_CACHE_S = 600
+CALENDAR_LOOKAHEAD_DAYS = 30
+
+
+def _as_local(value: date | datetime | str) -> tuple[date, bool]:
+    """Date locale d'un début/fin d'événement ; ``True`` si journée entière."""
+    if isinstance(value, str):
+        if len(value) == 10:
+            return date.fromisoformat(value), True
+        parsed = dt_util.parse_datetime(value)
+        if parsed is None:
+            raise ValueError(value)
+        value = parsed
+    if isinstance(value, datetime):
+        return dt_util.as_local(value).date(), False
+    return value, True
+
+
+def stay_window(
+    start: date | datetime | str,
+    end: date | datetime | str,
+    arrival_hour: int,
+) -> tuple[datetime, datetime]:
+    """Fenêtre d'affichage des photos pour un séjour du calendrier.
+
+    Du jour d'arrivée à ``arrival_hour`` jusqu'à la fin du jour de départ.
+    Le jour de départ est la date de fin de l'événement : pour un événement
+    « journée entière », la fin est exclusive et correspond à la date de
+    départ (format des calendriers de réservation : une nuit du samedi =
+    samedi → dimanche).
+    """
+    start_day, _ = _as_local(start)
+    end_day, _ = _as_local(end)
+    end_day = max(end_day, start_day)
+    tz = dt_util.get_default_time_zone()
+    win_start = datetime.combine(start_day, time(arrival_hour), tzinfo=tz)
+    win_end = datetime.combine(end_day + timedelta(days=1), time(0), tzinfo=tz)
+    return win_start, win_end
+
+
+@dataclass(frozen=True)
+class StayStatus:
+    """Le séjour est-il en cours, et sinon quand commence le prochain ?"""
+
+    active: bool
+    next_start: datetime | None = None
+    restricted: bool = True  # False : pas de calendrier, aucune restriction
+
+
+NO_CALENDAR = StayStatus(active=True, restricted=False)
+
+
+def stay_status(
+    events: list[tuple[date | datetime | str, date | datetime | str]],
+    now: datetime,
+    arrival_hour: int,
+) -> StayStatus:
+    """Statut du séjour à ``now`` d'après les événements du calendrier."""
+    upcoming: list[datetime] = []
+    for start, end in events:
+        try:
+            win_start, win_end = stay_window(start, end, arrival_hour)
+        except ValueError:
+            continue
+        if win_start <= now < win_end:
+            return StayStatus(active=True)
+        if win_start > now:
+            upcoming.append(win_start)
+    return StayStatus(active=False, next_start=min(upcoming) if upcoming else None)
+
+
 def frame_key(room_id: str, bed: int) -> str:
     """Clé d'un cadre : « chambre_d_ami/1 »."""
     return f"{room_id}/{bed}"
@@ -127,6 +207,7 @@ class PicPakSettings:
     title: str
     subtitle: str
     base_url: str
+    arrival_hour: int = 9
 
     @property
     def interval_s(self) -> int:
@@ -152,6 +233,7 @@ class FrameState:
     next_wake_s: int | None = None
     shown: str | None = None  # asset affiché (ou LOGO)
     requests: int = 0
+    in_stay: bool | None = None  # séjour en cours au dernier réveil
 
     def as_dict(self) -> dict[str, Any]:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
@@ -202,6 +284,8 @@ class PicPakManager:
         self._preview_png: dict[str, bytes] = {}
         self._body_rev: dict[str, int] = {}
         self._room_locks: dict[str, asyncio.Lock] = {}
+        # Statut de séjour par chambre : (statut, instant du calcul).
+        self._stays: dict[str, tuple[StayStatus, datetime]] = {}
         self._logo_sig: tuple | None = None
 
     # ------------------------------------------------------------------ #
@@ -330,9 +414,61 @@ class PicPakManager:
             self._prefetch(key)
             self._notify(key)
 
+    # ------------------------------------------------------------------ #
+    # Séjour en cours ?
+    # ------------------------------------------------------------------ #
+    async def _async_calendar_events(
+        self, entity_id: str, start: datetime, end: datetime
+    ) -> list[tuple[str, str]]:
+        """Événements du calendrier entre ``start`` et ``end``."""
+        response = await self.hass.services.async_call(
+            "calendar",
+            "get_events",
+            {"start_date_time": start, "end_date_time": end},
+            target={"entity_id": entity_id},
+            blocking=True,
+            return_response=True,
+        )
+        events = ((response or {}).get(entity_id) or {}).get("events") or []
+        return [
+            (str(e["start"]), str(e["end"]))
+            for e in events
+            if isinstance(e, dict) and e.get("start") and e.get("end")
+        ]
+
+    async def async_stay(self, room_id: str, now: datetime | None = None) -> StayStatus:
+        """Le séjour de la chambre est-il en cours (calendrier, mis en cache) ?"""
+        now = now or dt_util.now()
+        cached = self._stays.get(room_id)
+        if cached is not None:
+            status, at = cached
+            fresh = (now - at).total_seconds() < CALENDAR_CACHE_S
+            crossed = status.next_start is not None and now >= status.next_start
+            if fresh and not crossed:
+                return status
+        entity_id = PICPAK_CALENDAR.format(room_id=room_id)
+        if self.hass.states.get(entity_id) is None or not self.hass.services.has_service(
+            "calendar", "get_events"
+        ):
+            status = NO_CALENDAR
+        else:
+            try:
+                events = await self._async_calendar_events(
+                    entity_id,
+                    now - timedelta(days=CALENDAR_LOOKAHEAD_DAYS),
+                    now + timedelta(days=CALENDAR_LOOKAHEAD_DAYS),
+                )
+            except Exception as err:  # noqa: BLE001 - calendrier indisponible
+                _LOGGER.warning("PicPak : calendrier %s illisible: %s", entity_id, err)
+                return cached[0] if cached else NO_CALENDAR
+            status = stay_status(events, now, self.settings.arrival_hour)
+        self._stays[room_id] = (status, now)
+        return status
+
     @callback
     def async_room_changed(self, room_id: str) -> None:
         """Un helper de la chambre a changé : nouvelle sélection en arrière-plan."""
+        self._stays.pop(room_id, None)  # la réservation a pu changer aussi
         if room_id in self._engines:
             self.hass.async_create_background_task(
                 self.async_ensure_room(room_id), f"{DOMAIN} picpak {room_id}"
@@ -457,10 +593,17 @@ class PicPakManager:
         interval = self.settings.interval_s
         quiet_left = quiet_remaining(now, self.settings.quiet)
         next_wake = interval
+        stay = await self.async_stay(room_id, now) if frame.assets else NO_CALENDAR
+        frame.in_stay = stay.active if stay.restricted else None
 
-        if not frame.assets:
+        if not frame.assets or not stay.active:
+            # Chambre libre, ou séjour pas encore commencé / terminé : le logo.
             body = await self._async_logo()
             frame.shown = LOGO
+            if stay.next_start is not None:
+                # Se réveiller juste après le début du séjour (9 h le jour J).
+                until = (stay.next_start - now).total_seconds() + 60
+                next_wake = int(min(next_wake, until))
         else:
             if self._should_advance(frame, now, interval, wake, quiet_left):
                 frame.index = (frame.index + 1) % len(frame.assets)
@@ -601,6 +744,9 @@ class PicPakManager:
             return self._preview_png[key]
 
         asset_id = self._upcoming_asset(frame)
+        cached = self._stays.get(key.rsplit("/", 1)[0])
+        if cached is not None and not cached[0].active:
+            asset_id = None  # hors séjour : le cadre affichera le logo
         source = asset_id or LOGO
         cache_key = f"upcoming:{source}"
         if cache_key in self._preview_png:

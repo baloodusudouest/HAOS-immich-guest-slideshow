@@ -102,6 +102,14 @@ composer directement dans les 4 couleurs de la dalle donne le rendu le plus
 net) ; une autre taille est centrée sur fond blanc. Le SVG n'est pas lu :
 convertissez-le en PNG.
 
+### Photos seulement pendant le séjour
+
+Si la chambre a un calendrier `calendar.<chambre>` (ex. `calendar.chambre_ami`),
+les cadres n'affichent les photos que **pendant le séjour** : du jour d'arrivée
+à 9 h (réglable) jusqu'à la fin du jour de départ. Avant (invité déjà
+renseigné, séjour à venir) et après : le logo. Sans calendrier, l'invité est
+montré dès qu'il est renseigné.
+
 ### Fonctionnement
 
 Le cadre dort, se réveille, télécharge
