@@ -659,3 +659,19 @@ def test_stay_status_names_of_next_stay() -> None:
     from datetime import date as d
 
     assert status.days == (d(2026, 10, 23), d(2026, 10, 24))
+
+
+def test_bundled_font_has_french_accents() -> None:
+    """La police livrée doit couvrir les accents, même sans police système."""
+    import os
+
+    from PIL import ImageFont
+
+    path = os.path.join(os.path.dirname(pr.__file__), "fonts", "DejaVuSerif-Bold.ttf")
+    font = ImageFont.truetype(path, 20)
+    font_r = ImageFont.truetype(path.replace("-Bold", ""), 20)
+    for f in (font, font_r):
+        for ch in "éèêàçôûîœ→N°":
+            # Une lettre absente est dessinée comme le glyphe « .notdef ».
+            assert f.getmask(ch).getbbox() != f.getmask("￿").getbbox(), ch
+    assert pr._font(20, bold=True).path == path  # noqa: SLF001

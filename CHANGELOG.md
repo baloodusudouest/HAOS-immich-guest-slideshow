@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.8.3 — 2026-10-19
+
+- Correction : les accents et la flèche des légendes PicPak s'affichaient en
+  carré (« invit□ », « 23 □ sam. 24 »). Home Assistant OS n'a pas de police
+  système et celle de Pillow ne couvre pas ces caractères : l'intégration
+  embarque maintenant DejaVu Serif (réduite aux caractères latins, ~80 Ko,
+  licence dans `fonts/LICENSE.txt`), plus proche de la police du logo.
+
 ## 1.8.2 — 2026-10-19
 
 - Cadres PicPak : le logo porte en bas le nom de la chambre et le numéro du
