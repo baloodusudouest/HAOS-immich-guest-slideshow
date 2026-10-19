@@ -110,6 +110,10 @@ les cadres n'affichent les photos que **pendant le séjour** : du jour d'arrivé
 l'événement). Avant (invité déjà renseigné, séjour à venir) et après : le
 logo. Sans calendrier, l'invité est montré dès qu'il est renseigné.
 
+Le logo porte en bas une légende : le nom de l'invité du cadre et les dates de
+son séjour s'il y en a un de programmé, sinon « Chambre d'ami invité N°1 ».
+Un 2e logo peut être choisi pour les cadres n°2 (options).
+
 Le bouton `input_button.reinitialiser_chambre_hote` (réglable) termine les
 séjours en cours : logo sur tous les cadres à leur prochain réveil.
 
