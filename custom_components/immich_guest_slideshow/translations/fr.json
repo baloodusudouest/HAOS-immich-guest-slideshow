@@ -46,6 +46,7 @@
         "data": {
           "picpak_interval": "Minutes entre deux photos",
           "picpak_photos": "Photos par cadre et par séjour",
+          "picpak_arrival_hour": "Heure de début des photos le jour d'arrivée (calendrier calendar.<chambre>)",
           "picpak_quiet": "Pause nocturne, ex. 23:00-07:00 (vide = aucune)",
           "picpak_logo": "Logo affiché quand la chambre est libre (chemin d'un PNG)",
           "picpak_title": "Titre du logo texte, si le fichier de logo est absent",
