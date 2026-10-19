@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.2 — 2026-10-19
+
+- Cadres PicPak : les photos **remplissent tout l'écran** (plus de bandes
+  blanches). Elles sont recadrées au format 4:3 en gardant au centre le
+  **visage de l'invité**, d'après les visages détectés par Immich ; si l'invité
+  n'est pas reconnu sur la photo, tous les visages ; sans visage, recadrage
+  légèrement au-dessus du centre.
+- La clé API Immich doit avoir la permission de lecture des visages
+  (« face.read ») ; sans elle, le recadrage se fait sans visage.
+
 ## 1.6.1 — 2026-10-19
 
 - Correction : l'entité image d'un cadre PicPak restait vide (image cassée) tant que

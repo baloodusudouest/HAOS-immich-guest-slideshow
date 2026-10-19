@@ -5,7 +5,8 @@ d'affichage de 30 000 octets, au format exact attendu par la dalle.
 
 Pipeline (référence : documentation/image-pipeline.md du projet open-PicPak) :
 
-1. photo intégrale réduite dans 400×300 (bandes blanches si le format diffère) ;
+1. recadrage plein cadre 400×300 (aucune bande), centré sur le visage de
+   l'invité quand Immich l'a détecté, sinon légèrement au-dessus du centre ;
 2. quantification au plus proche des 4 couleurs (distance RVB pondérée
    BT.601 : 0,299 / 0,587 / 0,114) ;
 3. tramage d'Atkinson (erreur répartie 1/8 sur 6 voisins, NON bornée) ;
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import io
 import os
+from collections.abc import Sequence
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
 
 FRAME_W = 400
@@ -47,24 +49,101 @@ _LW_R, _LW_G, _LW_B = 0.299, 0.587, 0.114
 
 
 # --------------------------------------------------------------------------- #
-# Mise à l'échelle
+# Recadrage plein cadre, centré sur les visages
 # --------------------------------------------------------------------------- #
-def contain(
+# Boîte normalisée (x1, y1, x2, y2), coordonnées 0..1 dans l'image source.
+Box = tuple[float, float, float, float]
+
+# Visée sans visage connu : un peu au-dessus du centre, là où se trouvent les
+# têtes sur la plupart des photos.
+DEFAULT_FOCUS = (0.5, 0.42)
+
+
+def face_box(faces: Sequence[dict], person_id: str | None) -> Box | None:
+    """Boîte englobant les visages à garder dans le cadre.
+
+    Priorité au(x) visage(s) de l'invité ``person_id`` ; à défaut (invité non
+    reconnu sur cette photo), tous les visages détectés. ``None`` si Immich
+    n'a détecté aucun visage exploitable.
+
+    Les boîtes d'Immich sont exprimées dans les dimensions de l'image
+    analysée (``imageWidth`` × ``imageHeight``, orientation EXIF appliquée,
+    comme l'aperçu téléchargé) : on les normalise donc par ces dimensions.
+    """
+    def _box(face: dict) -> Box | None:
+        try:
+            w = float(face["imageWidth"])
+            h = float(face["imageHeight"])
+            if w <= 0 or h <= 0:
+                return None
+            x1 = float(face["boundingBoxX1"]) / w
+            y1 = float(face["boundingBoxY1"]) / h
+            x2 = float(face["boundingBoxX2"]) / w
+            y2 = float(face["boundingBoxY2"]) / h
+        except (KeyError, TypeError, ValueError):
+            return None
+        x1, x2 = sorted((min(max(x1, 0.0), 1.0), min(max(x2, 0.0), 1.0)))
+        y1, y2 = sorted((min(max(y1, 0.0), 1.0), min(max(y2, 0.0), 1.0)))
+        if x2 - x1 <= 0 or y2 - y1 <= 0:
+            return None
+        return (x1, y1, x2, y2)
+
+    def _person(face: dict) -> str | None:
+        person = face.get("person")
+        return person.get("id") if isinstance(person, dict) else None
+
+    guest = [f for f in faces if person_id and _person(f) == person_id]
+    for group in (guest, list(faces)):
+        boxes = [b for b in (_box(f) for f in group) if b]
+        if boxes:
+            return (
+                min(b[0] for b in boxes),
+                min(b[1] for b in boxes),
+                max(b[2] for b in boxes),
+                max(b[3] for b in boxes),
+            )
+    return None
+
+
+def _window(start_hint: float, size: float, total: float, lo: float, hi: float) -> float:
+    """Position (en pixels) d'une fenêtre de ``size`` dans ``total``.
+
+    Centrée sur ``start_hint`` (centre souhaité) ; si la zone [lo, hi] à
+    garder tient dans la fenêtre, on la décale juste assez pour l'inclure
+    entièrement. Toujours bornée à l'image.
+    """
+    pos = start_hint - size / 2
+    if hi - lo <= size:
+        pos = min(max(pos, hi - size), lo)
+    return min(max(0.0, pos), total - size)
+
+
+def cover_crop(
     img: Image.Image,
+    box: Box | None = None,
     size: tuple[int, int] = (FRAME_W, FRAME_H),
-    background: tuple[int, int, int] = PALETTE[WHITE],
 ) -> Image.Image:
-    """Photo INTÉGRALE : réduite pour tenir dans ``size``, sans rognage ni
-    déformation, centrée sur un fond uni (bandes blanches, comme le papier
-    de la dalle, en haut/bas ou à gauche/droite selon le format)."""
+    """Recadre ``img`` pour REMPLIR ``size`` (aucune bande), sans déformation.
+
+    La photo est mise à l'échelle pour couvrir tout le cadre, puis la fenêtre
+    est placée de façon à centrer la boîte des visages ``box`` ; si aucun
+    visage n'est connu, visée légèrement au-dessus du centre.
+    """
     tw, th = size
     sw, sh = img.size
-    scale = min(tw / sw, th / sh)
-    nw, nh = max(1, round(sw * scale)), max(1, round(sh * scale))
+    scale = max(tw / sw, th / sh)
+    nw, nh = max(tw, round(sw * scale)), max(th, round(sh * scale))
     img = img.resize((nw, nh), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGB", size, background)
-    canvas.paste(img, ((tw - nw) // 2, (th - nh) // 2))
-    return canvas
+    if box is None:
+        cx, cy = DEFAULT_FOCUS[0] * nw, DEFAULT_FOCUS[1] * nh
+        x1 = x2 = cx
+        y1 = y2 = cy
+    else:
+        x1, y1, x2, y2 = box[0] * nw, box[1] * nh, box[2] * nw, box[3] * nh
+        cx, cy = (x1 + x2) / 2, (y1 + y2) / 2
+    left = round(_window(cx, tw, nw, x1, x2))
+    top = round(_window(cy, th, nh, y1, y2))
+    return img.crop((left, top, left + tw, top + th))
 
 
 # --------------------------------------------------------------------------- #
@@ -215,15 +294,14 @@ def _prepare_photo(img: Image.Image) -> Image.Image:
     return img
 
 
-def render_photo(jpeg: bytes) -> bytes:
+def render_photo(jpeg: bytes, box: Box | None = None) -> bytes:
     """Photo (JPEG/PNG/WebP) -> tampon d'affichage de 30 000 octets.
 
-    La photo est affichée en entier : le renfort de contraste est appliqué
-    avant l'ajout des bandes, pour ne pas être faussé par leur blanc.
+    ``box`` : visages à garder au centre (voir :func:`face_box`).
     """
     with Image.open(io.BytesIO(jpeg)) as src:
         img = ImageOps.exif_transpose(src).convert("RGB")
-    img = contain(_prepare_photo(img))
+    img = _prepare_photo(cover_crop(img, box))
     return pack(quantize(img, dither=True))
 
 

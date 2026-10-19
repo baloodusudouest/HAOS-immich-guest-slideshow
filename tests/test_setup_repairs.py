@@ -64,6 +64,9 @@ class FakeImmich:
     async def async_get_thumbnail(self, *args: Any, **kwargs: Any) -> bytes:
         return b""
 
+    async def async_get_faces(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
 
 def _entry() -> MockConfigEntry:
     return MockConfigEntry(

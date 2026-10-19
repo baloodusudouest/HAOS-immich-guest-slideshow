@@ -86,17 +86,58 @@ def test_render_photo_and_logo_sizes() -> None:
     assert len(pr.preview_png(pr.render_logo())) > 100
 
 
-def test_photo_is_shown_whole() -> None:
-    """Portrait 1:3 : réduit sans rognage, bandes blanches à gauche/droite."""
-    img = Image.new("RGB", (400, 1200), (0, 0, 0))
-    img.paste((255, 0, 0), (0, 0, 400, 30))  # liseré rouge en haut
-    img.paste((255, 0, 0), (0, 1170, 400, 1200))  # et en bas
-    out = pr.contain(img)
+def _face(x1, y1, x2, y2, w, h, pid=None) -> dict:
+    return {
+        "boundingBoxX1": x1, "boundingBoxY1": y1,
+        "boundingBoxX2": x2, "boundingBoxY2": y2,
+        "imageWidth": w, "imageHeight": h,
+        "person": {"id": pid} if pid else None,
+    }
+
+
+def test_face_box_prefers_the_guest() -> None:
+    faces = [
+        _face(0, 0, 100, 100, 1000, 500, "autre"),
+        _face(800, 300, 900, 400, 1000, 500, "invite"),
+    ]
+    assert pr.face_box(faces, "invite") == (0.8, 0.6, 0.9, 0.8)
+    # Invité absent de la photo : tous les visages
+    assert pr.face_box(faces, "inconnu") == (0.0, 0.0, 0.9, 0.8)
+    assert pr.face_box([], "invite") is None
+    assert pr.face_box([{"imageWidth": 0}], "invite") is None
+
+
+def test_cover_crop_fills_the_frame_and_keeps_the_face() -> None:
+    """Paysage 16:9, visage tout à droite : pas de bande, visage conservé."""
+    img = Image.new("RGB", (1600, 900), (0, 0, 0))
+    img.paste((255, 0, 0), (1450, 300, 1550, 400))  # « visage » rouge
+    box = (1450 / 1600, 300 / 900, 1550 / 1600, 400 / 900)
+    out = pr.cover_crop(img, box)
     assert out.size == (400, 300)
-    assert out.getpixel((200, 2)) == (255, 0, 0)  # haut conservé
-    assert out.getpixel((200, 297)) == (255, 0, 0)  # bas conservé
-    assert out.getpixel((10, 150)) == (255, 255, 255)  # bande blanche
-    assert out.getpixel((200, 150)) == (0, 0, 0)
+    reds = [
+        (x, y) for x in range(0, 400, 4) for y in range(0, 300, 4)
+        if out.getpixel((x, y))[0] > 200 and out.getpixel((x, y))[1] < 50
+    ]
+    assert reds, "le visage doit rester visible"
+    xs = [x for x, _ in reds]
+    assert min(xs) > 0 and max(xs) < 399  # entièrement dans le cadre
+    # Sans visage : recadrage centré, toujours plein cadre
+    assert pr.cover_crop(img, None).size == (400, 300)
+
+
+def test_cover_crop_portrait_centres_the_face_vertically() -> None:
+    img = Image.new("RGB", (600, 1200), (0, 0, 0))
+    img.paste((255, 255, 255), (250, 900, 350, 1000))  # visage en bas
+    out = pr.cover_crop(img, (250 / 600, 900 / 1200, 350 / 600, 1000 / 1200))
+    # Le visage (blanc) est au centre vertical de la fenêtre
+    assert out.getpixel((200, 150)) == (255, 255, 255)
+
+
+def test_render_photo_has_no_white_bands() -> None:
+    frame = pr.render_photo(_jpeg((200, 30, 30), (1600, 900)))
+    codes = pr.unpack(frame)
+    # Colonne de gauche et rangée du haut : rouge, pas de bande blanche
+    assert codes[0] != pr.WHITE and codes[150 * 400] != pr.WHITE
 
 
 def test_full_page_logo_is_used_as_is(tmp_path) -> None:
@@ -171,6 +212,9 @@ class FakeImmich:
         count = self.photos.get(frozenset(person_ids), 0)
         key = "-".join(sorted(person_ids))
         return [{"id": f"{key}#{i}"} for i in range(count)]
+
+    async def async_get_faces(self, asset_id: str) -> list[dict[str, Any]]:
+        return []
 
     async def async_get_thumbnail(self, asset_id: str, **kwargs: Any) -> bytes:
         from custom_components.immich_guest_slideshow.api import ImmichApiError
