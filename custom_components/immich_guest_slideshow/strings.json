@@ -37,7 +37,7 @@
           "cache_size": "Max photos cached per room",
           "rebuild_hours": "Cache refresh interval in hours (0 = disabled)",
           "permanent_persons": "Permanent persons (exact names or Immich person IDs, comma separated)",
-          "min_photos": "Minimum photos per guest (below this, their own photos are added and a repair is raised)"
+          "min_photos": "Minimum photos per guest (below it, a repair is created)"
         }
       },
       "picpak": {
