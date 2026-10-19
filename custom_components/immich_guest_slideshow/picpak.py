@@ -18,8 +18,9 @@ Toute l'intelligence est ici, côté Home Assistant :
 - **pause nocturne** facultative : pas de changement de photo la nuit, le
   cadre dort jusqu'à la fin de la pause ;
 - **chambre libre** : le logo, statique, donc jamais ré-affiché ;
-- **rendu** : photo intégrale (jamais rognée), réduite aux 4 couleurs de
-  la dalle (voir :mod:`.picpak_render`). Le rendu de la photo
+- **rendu** : photo recadrée pour remplir l'écran, centrée sur le visage de
+  l'invité (visages détectés par Immich), réduite aux 4 couleurs de la dalle
+  (voir :mod:`.picpak_render`). Le rendu de la photo
   suivante est préparé à l'avance pour répondre au cadre en quelques
   millisecondes (son délai d'attente HTTP est de 15 s).
 
@@ -386,9 +387,16 @@ class PicPakManager:
         except ImmichApiError as err:
             _LOGGER.warning("PicPak : téléchargement de %s en échec: %s", asset_id, err)
             return None
+        box = None
+        try:
+            faces = await self._api.async_get_faces(asset_id)
+            box = picpak_render.face_box(faces, person_id)
+        except ImmichApiError as err:
+            # Clé API sans la permission « face.read » : recadrage centré.
+            _LOGGER.debug("PicPak : visages de %s indisponibles: %s", asset_id, err)
         try:
             body = await self.hass.async_add_executor_job(
-                picpak_render.render_photo, jpeg
+                picpak_render.render_photo, jpeg, box
             )
         except Exception as err:  # noqa: BLE001 - image corrompue / format inconnu
             _LOGGER.warning("PicPak : rendu de %s impossible: %s", asset_id, err)

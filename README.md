@@ -82,10 +82,11 @@ photos individuelles). La photo change **toutes les heures** (réglable), ou
 tout de suite sur un appui du bouton du cadre. Une **pause nocturne**
 (ex. `23:00-07:00`) évite tout réveil inutile la nuit.
 
-Chaque photo est affichée **en entier**, jamais rognée : elle est réduite pour
-tenir dans 400×300, avec des bandes blanches si son format diffère (portrait
-notamment). La conversion en 4 couleurs reproduit exactement celle de l'appli
-d'origine (distance BT.601, tramage d'Atkinson).
+Chaque photo **remplit tout l'écran** : elle est recadrée au format 400×300 en
+gardant au centre le **visage de l'invité** (visages détectés par Immich ; la
+clé API doit avoir la permission « face.read », sinon recadrage légèrement
+au-dessus du centre). La conversion en 4 couleurs reproduit exactement celle
+de l'appli d'origine (distance BT.601, tramage d'Atkinson).
 
 **Logo** : un PNG de exactement 400×300 est affiché pleine page tel quel (le
 composer directement dans les 4 couleurs de la dalle donne le rendu le plus
