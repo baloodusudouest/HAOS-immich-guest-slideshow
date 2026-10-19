@@ -96,6 +96,7 @@ CONF_PICPAK_LOGO: Final = "picpak_logo"           # chemin du logo (chambre libr
 CONF_PICPAK_TITLE: Final = "picpak_title"         # logo texte de secours
 CONF_PICPAK_SUBTITLE: Final = "picpak_subtitle"
 CONF_PICPAK_BASE_URL: Final = "picpak_base_url"   # URL locale de HA vue du cadre
+CONF_PICPAK_ARRIVAL_HOUR: Final = "picpak_arrival_hour"  # début des photos le jour J
 
 DEFAULT_PICPAK_INTERVAL: Final = 60
 DEFAULT_PICPAK_PHOTOS: Final = 50
@@ -104,6 +105,10 @@ DEFAULT_PICPAK_LOGO: Final = "/config/www/picpak_logo.png"
 DEFAULT_PICPAK_TITLE: Final = "Bienvenue"
 DEFAULT_PICPAK_SUBTITLE: Final = ""
 DEFAULT_PICPAK_BASE_URL: Final = ""
+DEFAULT_PICPAK_ARRIVAL_HOUR: Final = 9
+# Calendrier des séjours d'une chambre : calendar.<identifiant de la chambre>.
+# Sans ce calendrier, les cadres montrent l'invité dès qu'il est renseigné.
+PICPAK_CALENDAR: Final = "calendar.{room_id}"
 
 SERVICE_PICPAK_URLS: Final = "picpak_urls"
 SERVICE_PICPAK_NEXT: Final = "picpak_next"

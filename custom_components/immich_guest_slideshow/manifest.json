@@ -1,4 +1,9 @@
 {
+  "domain": "immich_guest_slideshow",
+  "name": "Immich Guest Slideshow",
+  "after_dependencies": [
+    "calendar"
+  ],
   "codeowners": [
     "@baloodusudouest"
   ],
@@ -10,11 +15,9 @@
     "repairs"
   ],
   "documentation": "https://github.com/baloodusudouest/haos-immich-guest-slideshow",
-  "domain": "immich_guest_slideshow",
   "integration_type": "hub",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/baloodusudouest/haos-immich-guest-slideshow/issues",
-  "name": "Immich Guest Slideshow",
   "requirements": [],
-  "version": "1.7.0"
+  "version": "1.8.0"
 }

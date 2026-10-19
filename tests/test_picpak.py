@@ -10,7 +10,7 @@ from freezegun.api import FrozenDateTimeFactory
 from PIL import Image
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, SupportsResponse
 from homeassistant.util import dt as dt_util
 
 from custom_components.immich_guest_slideshow import picpak_render as pr
@@ -430,6 +430,125 @@ async def test_screen_preview_before_first_wake(
         resp = await client.get(state.attributes["entity_picture"])
         assert resp.status == 200
         assert await resp.read() == pr.preview_png(pr.render_logo(None, "Bienvenue", ""))
+    finally:
+        await hass.config_entries.async_unload(entry.entry_id)
+        patcher.stop()
+
+
+# --------------------------------------------------------------------------- #
+# Période de séjour (calendrier de la chambre)
+# --------------------------------------------------------------------------- #
+from custom_components.immich_guest_slideshow.picpak import (  # noqa: E402
+    stay_status,
+    stay_window,
+)
+
+
+def test_stay_window_all_day_booking() -> None:
+    """Nuit du samedi (journée entière, fin exclusive = dimanche)."""
+    tz = dt_util.get_default_time_zone()
+    start, end = stay_window("2026-10-24", "2026-10-25", 9)
+    assert start == datetime(2026, 10, 24, 9, 0, tzinfo=tz)
+    assert end == datetime(2026, 10, 26, 0, 0, tzinfo=tz)  # tout le dimanche
+
+
+def test_stay_window_timed_event() -> None:
+    tz = dt_util.get_default_time_zone()
+    start, end = stay_window(
+        datetime(2026, 10, 24, 16, 0, tzinfo=tz),
+        datetime(2026, 10, 25, 11, 0, tzinfo=tz),
+        9,
+    )
+    assert start == datetime(2026, 10, 24, 9, 0, tzinfo=tz)
+    assert end == datetime(2026, 10, 26, 0, 0, tzinfo=tz)
+
+
+def test_stay_status_before_during_after() -> None:
+    tz = dt_util.get_default_time_zone()
+    events = [("2026-10-24", "2026-10-25")]
+    monday = datetime(2026, 10, 19, 19, 0, tzinfo=tz)
+    status = stay_status(events, monday, 9)
+    assert not status.active
+    assert status.next_start == datetime(2026, 10, 24, 9, 0, tzinfo=tz)
+    early = datetime(2026, 10, 24, 8, 59, tzinfo=tz)
+    assert not stay_status(events, early, 9).active
+    assert stay_status(events, datetime(2026, 10, 24, 9, 0, tzinfo=tz), 9).active
+    assert stay_status(events, datetime(2026, 10, 25, 23, 0, tzinfo=tz), 9).active
+    after = stay_status(events, datetime(2026, 10, 26, 0, 1, tzinfo=tz), 9)
+    assert not after.active and after.next_start is None
+
+
+async def test_logo_until_the_stay_starts(
+    hass: HomeAssistant, hass_client_no_auth, freezer: FrozenDateTimeFactory
+) -> None:
+    """Invité programmé lundi pour samedi : logo jusqu'à samedi 9 h."""
+    tz = dt_util.get_default_time_zone()
+    freezer.move_to(datetime(2026, 10, 19, 19, 0, tzinfo=tz))
+    FakeImmich.photos = {frozenset([PEOPLE["Alexia"], PEOPLE["Propriétaire 1"]]): 6}
+    FakeImmich.fail = set()
+    hass.states.async_set("calendar.chambre_test", "off")
+
+    async def get_events(call):
+        # Réponse au format du service calendar.get_events de Home Assistant.
+        return {
+            "calendar.chambre_test": {
+                "events": [
+                    {"start": "2026-10-24", "end": "2026-10-25", "summary": "Alexia"}
+                ]
+            }
+        }
+
+    hass.services.async_register(
+        "calendar", "get_events", get_events, supports_response=SupportsResponse.ONLY
+    )
+    entry, patcher = await _setup(hass, "Alexia")
+    try:
+        urls = await _urls(hass)
+        client = await hass_client_no_auth()
+        manager = entry.runtime_data.picpak
+        frame = manager.frames["chambre_test/1"]
+
+        # Lundi : séjour programmé mais pas commencé -> logo
+        resp = await client.get(_path(urls[1]))
+        logo = await resp.read()
+        assert logo == pr.render_logo(None, "Bienvenue", "")
+        assert frame.shown == "__logo__" and frame.in_stay is False
+        assert frame.index == -1  # la rotation n'a pas commencé
+        assert int(resp.headers["X-Next-Wake-Seconds"]) == 3600
+
+        # Samedi 8 h 30 : réveil prévu juste après 9 h
+        freezer.move_to(datetime(2026, 10, 24, 8, 30, tzinfo=tz))
+        resp = await client.get(_path(urls[1]))
+        assert await resp.read() == logo
+        assert int(resp.headers["X-Next-Wake-Seconds"]) == 30 * 60 + 60
+
+        # Samedi 9 h 01 : photos
+        freezer.move_to(datetime(2026, 10, 24, 9, 1, tzinfo=tz))
+        resp = await client.get(_path(urls[1]))
+        assert await resp.read() != logo
+        assert frame.in_stay is True and frame.shown in frame.assets
+
+        # Lundi 0 h 01 : séjour terminé -> logo
+        freezer.move_to(datetime(2026, 10, 26, 0, 1, tzinfo=tz))
+        resp = await client.get(_path(urls[1]))
+        assert await resp.read() == logo
+    finally:
+        await hass.config_entries.async_unload(entry.entry_id)
+        patcher.stop()
+
+
+async def test_no_calendar_shows_photos_right_away(
+    hass: HomeAssistant, hass_client_no_auth
+) -> None:
+    FakeImmich.photos = {frozenset([PEOPLE["Alexia"], PEOPLE["Propriétaire 1"]]): 3}
+    FakeImmich.fail = set()
+    entry, patcher = await _setup(hass, "Alexia")
+    try:
+        urls = await _urls(hass)
+        client = await hass_client_no_auth()
+        body = await (await client.get(_path(urls[1]))).read()
+        assert body != pr.render_logo(None, "Bienvenue", "")
+        assert entry.runtime_data.picpak.frames["chambre_test/1"].in_stay is None
     finally:
         await hass.config_entries.async_unload(entry.entry_id)
         patcher.stop()

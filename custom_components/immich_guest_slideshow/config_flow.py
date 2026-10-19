@@ -39,6 +39,7 @@ from .const import (
     CONF_INTERVAL,
     CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
+    CONF_PICPAK_ARRIVAL_HOUR,
     CONF_PICPAK_BASE_URL,
     CONF_PICPAK_INTERVAL,
     CONF_PICPAK_LOGO,
@@ -53,6 +54,7 @@ from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_MIN_PHOTOS,
     DEFAULT_PERMANENT_PERSONS,
+    DEFAULT_PICPAK_ARRIVAL_HOUR,
     DEFAULT_PICPAK_BASE_URL,
     DEFAULT_PICPAK_INTERVAL,
     DEFAULT_PICPAK_LOGO,
@@ -214,6 +216,9 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
             else:
                 self.options[CONF_PICPAK_INTERVAL] = user_input[CONF_PICPAK_INTERVAL]
                 self.options[CONF_PICPAK_PHOTOS] = user_input[CONF_PICPAK_PHOTOS]
+                self.options[CONF_PICPAK_ARRIVAL_HOUR] = user_input[
+                    CONF_PICPAK_ARRIVAL_HOUR
+                ]
                 self.options[CONF_PICPAK_QUIET] = quiet
                 self.options[CONF_PICPAK_LOGO] = (
                     user_input.get(CONF_PICPAK_LOGO) or ""
@@ -243,6 +248,12 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
                     CONF_PICPAK_PHOTOS,
                     default=opts.get(CONF_PICPAK_PHOTOS, DEFAULT_PICPAK_PHOTOS),
                 ): vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_ALBUM_SIZE)),
+                vol.Required(
+                    CONF_PICPAK_ARRIVAL_HOUR,
+                    default=opts.get(
+                        CONF_PICPAK_ARRIVAL_HOUR, DEFAULT_PICPAK_ARRIVAL_HOUR
+                    ),
+                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
                 _text(CONF_PICPAK_QUIET, DEFAULT_PICPAK_QUIET): str,
                 _text(CONF_PICPAK_LOGO, DEFAULT_PICPAK_LOGO): str,
                 _text(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE): str,
