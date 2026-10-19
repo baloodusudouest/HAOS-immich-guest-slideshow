@@ -51,7 +51,8 @@
           "picpak_logo": "Logo affiché quand la chambre est libre (chemin d'un PNG)",
           "picpak_title": "Titre du logo texte, si le fichier de logo est absent",
           "picpak_subtitle": "Sous-titre du logo texte",
-          "picpak_base_url": "URL locale de Home Assistant vue par les cadres (vide = automatique)"
+          "picpak_base_url": "URL locale de Home Assistant vue par les cadres (vide = automatique)",
+          "picpak_reset_button": "Bouton de réinitialisation de la maison (fin des séjours en cours, logo sur les cadres)"
         }
       },
       "add_room": {
