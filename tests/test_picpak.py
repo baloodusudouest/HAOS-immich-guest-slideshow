@@ -620,3 +620,12 @@ def test_logo_caption_is_drawn_at_the_bottom(tmp_path) -> None:
     assert pr.YELLOW in band and pr.BLACK in band
     # … et le logo réduit ne déborde pas dedans (les coins restent noirs).
     assert band[0] == pr.BLACK and band[-1] == pr.BLACK
+
+
+def test_second_logo_for_even_frames() -> None:
+    from custom_components.immich_guest_slideshow.picpak import PicPakSettings
+
+    s = PicPakSettings(60, 50, None, "/a.png", "", "", "", logo_path_2="/b.png")
+    assert [s.logo_for_bed(b) for b in (1, 2, 3, 4)] == ["/a.png", "/b.png", "/a.png", "/b.png"]
+    s.logo_path_2 = ""
+    assert s.logo_for_bed(2) == "/a.png"

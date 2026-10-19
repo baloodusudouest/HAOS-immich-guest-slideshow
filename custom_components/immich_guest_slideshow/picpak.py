@@ -220,6 +220,14 @@ class PicPakSettings:
     subtitle: str
     base_url: str
     arrival_hour: int = 9
+    logo_path_2: str = ""
+
+    def logo_for_bed(self, bed: int) -> str:
+        """Logo du cadre n° ``bed`` : le 2e logo pour les cadres pairs, s'il
+        est renseigné, sinon le logo principal."""
+        if bed % 2 == 0 and self.logo_path_2:
+            return self.logo_path_2
+        return self.logo_path
 
     @property
     def interval_s(self) -> int:
@@ -539,12 +547,14 @@ class PicPakManager:
     # Rendu
     # ------------------------------------------------------------------ #
     def _logo_signature(self) -> tuple:
-        path = self.settings.logo_path
-        try:
-            mtime = os.path.getmtime(path) if path else None
-        except OSError:
-            mtime = None
-        return (path, mtime, self.settings.title, self.settings.subtitle)
+        sig: list = [self.settings.title, self.settings.subtitle]
+        for path in (self.settings.logo_path, self.settings.logo_path_2):
+            try:
+                mtime = os.path.getmtime(path) if path else None
+            except OSError:
+                mtime = None
+            sig.append((path, mtime))
+        return tuple(sig)
 
     def logo_caption(self, key: str) -> str:
         """Légende du logo d'un cadre : « Chambre d'ami invité N°1 »."""
@@ -560,9 +570,10 @@ class PicPakManager:
             self._logos.clear()
             self._logo_sig = sig
         if key not in self._logos:
+            bed = int(key.rsplit("/", 1)[1])
             self._logos[key] = await self.hass.async_add_executor_job(
                 picpak_render.render_logo,
-                self.settings.logo_path,
+                self.settings.logo_for_bed(bed),
                 self.settings.title,
                 self.settings.subtitle,
                 self.logo_caption(key),

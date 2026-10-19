@@ -5,6 +5,8 @@
 - Cadres PicPak : le logo porte en bas le nom de la chambre et le numéro du
   cadre (« Chambre d'ami invité N°1 »). Le logo est réduit pour laisser la
   place à la légende, écrite en jaune sur fond sombre, en noir sur fond clair.
+- Nouvelle option « Logo du cadre n°2 » : un 2e logo pour les cadres n°2
+  (et 4…) ; vide, ils reprennent le logo du cadre n°1.
 
 ## 1.8.1 — 2026-10-19
 
