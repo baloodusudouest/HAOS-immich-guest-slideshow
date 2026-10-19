@@ -390,13 +390,19 @@ CAPTION_BAND = 30  # hauteur de la légende en bas du logo
 def _add_caption(img: Image.Image, caption: str) -> Image.Image:
     """Réduit le logo pour libérer une bande en bas et y écrit ``caption``.
 
-    Le logo garde ses proportions et la couleur de son fond (prise dans le
-    coin) ; la légende est en jaune sur fond sombre, en noir sur fond clair.
+    Une ou deux lignes (séparées par « \n ») : la 1re en gras, la 2e plus
+    petite. Le logo garde ses proportions et la couleur de son fond (prise
+    dans le coin) ; la légende est en jaune sur fond sombre, en noir sur fond
+    clair.
     """
+    lines = [ln.strip() for ln in caption.split("\n") if ln.strip()][:2]
+    if not lines:
+        return img
     bg = img.getpixel((0, 0))
     luma = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
     ink = PALETTE[YELLOW] if luma < 128 else PALETTE[BLACK]
-    area = (FRAME_W, FRAME_H - CAPTION_BAND)
+    band = CAPTION_BAND if len(lines) == 1 else CAPTION_BAND + 20
+    area = (FRAME_W, FRAME_H - band)
     scale = min(area[0] / img.width, area[1] / img.height)
     small = img.resize(
         (max(1, round(img.width * scale)), max(1, round(img.height * scale))),
@@ -405,14 +411,25 @@ def _add_caption(img: Image.Image, caption: str) -> Image.Image:
     out = Image.new("RGB", (FRAME_W, FRAME_H), bg)
     out.paste(small, ((FRAME_W - small.width) // 2, (area[1] - small.height) // 2))
     draw = ImageDraw.Draw(out)
-    for size in (20, 18, 16, 14, 12):
-        font = _font(size, bold=True)
-        box = draw.textbbox((0, 0), caption, font=font)
-        if box[2] - box[0] <= FRAME_W - 16:
-            break
-    tw, th = box[2] - box[0], box[3] - box[1]
-    y = area[1] + (CAPTION_BAND - th) / 2 - box[1]
-    draw.text(((FRAME_W - tw) / 2 - box[0], y), caption, font=font, fill=ink)
+
+    def fit(text: str, sizes: tuple[int, ...], bold: bool):
+        for size in sizes:
+            font = _font(size, bold=bold)
+            box = draw.textbbox((0, 0), text, font=font)
+            if box[2] - box[0] <= FRAME_W - 16:
+                break
+        return font, box
+
+    fonts = [fit(lines[0], (20, 18, 16, 14, 12), True)]
+    if len(lines) > 1:
+        fonts.append(fit(lines[1], (16, 14, 12), False))
+    gap = 4
+    heights = [b[3] - b[1] for _, b in fonts]
+    y = area[1] + (band - sum(heights) - gap * (len(lines) - 1)) / 2
+    for text, (font, box), h in zip(lines, fonts, heights, strict=True):
+        tw = box[2] - box[0]
+        draw.text(((FRAME_W - tw) / 2 - box[0], y - box[1]), text, font=font, fill=ink)
+        y += h + gap
     return out
 
 

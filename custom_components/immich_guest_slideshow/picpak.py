@@ -165,42 +165,101 @@ def stay_window(
     return win_start, win_end
 
 
+def stay_days(
+    start: date | datetime | str, end: date | datetime | str
+) -> tuple[date, date]:
+    """Jour d'arrivée et jour de départ (dernier jour couvert) d'un séjour."""
+    start_day, _ = _as_local(start)
+    end_day, all_day = _as_local(end)
+    if all_day:
+        end_day -= timedelta(days=1)
+    return start_day, max(end_day, start_day)
+
+
+_JOURS = ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
+_MOIS = (
+    "janv.", "févr.", "mars", "avr.", "mai", "juin",
+    "juil.", "août", "sept.", "oct.", "nov.", "déc.",
+)
+
+
+def format_stay(start_day: date, end_day: date) -> str:
+    """« ven. 23 → sam. 24 oct. », « 30 oct. → 2 nov. », « sam. 24 oct. »."""
+    def day(d: date) -> str:
+        return f"{_JOURS[d.weekday()]} {d.day}"
+
+    if start_day == end_day:
+        return f"{day(start_day)} {_MOIS[start_day.month - 1]}"
+    if start_day.month == end_day.month:
+        return f"{day(start_day)} → {day(end_day)} {_MOIS[end_day.month - 1]}"
+    return (
+        f"{day(start_day)} {_MOIS[start_day.month - 1]} → "
+        f"{day(end_day)} {_MOIS[end_day.month - 1]}"
+    )
+
+
 @dataclass(frozen=True)
 class StayStatus:
-    """Le séjour est-il en cours, et sinon quand commence le prochain ?"""
+    """Le séjour est-il en cours, et sinon quand commence le prochain ?
+
+    ``days`` / ``names`` : dates (arrivée, départ) et noms des événements du
+    séjour en cours, ou à défaut du prochain séjour.
+    """
 
     active: bool
     next_start: datetime | None = None
     restricted: bool = True  # False : pas de calendrier, aucune restriction
+    days: tuple[date, date] | None = None
+    names: tuple[str, ...] = ()
 
 
 NO_CALENDAR = StayStatus(active=True, restricted=False)
 
 
 def stay_status(
-    events: list[tuple[date | datetime | str, date | datetime | str]],
+    events: list[tuple],
     now: datetime,
     arrival_hour: int,
     closed_at: datetime | None = None,
 ) -> StayStatus:
     """Statut du séjour à ``now`` d'après les événements du calendrier.
 
-    ``closed_at`` : instant d'une réinitialisation de la maison ; tout séjour
-    déjà commencé à cet instant est considéré comme terminé.
+    ``events`` : ``(début, fin)`` ou ``(début, fin, titre)``. Les événements
+    qui commencent le même jour forment un même séjour (un événement par
+    invité). ``closed_at`` : instant d'une réinitialisation de la maison ; tout
+    séjour déjà commencé à cet instant est considéré comme terminé.
     """
-    upcoming: list[datetime] = []
-    for start, end in events:
+    current: list[tuple[date, date, str]] = []
+    upcoming: list[tuple[datetime, date, date, str]] = []
+    for event in events:
+        start, end = event[0], event[1]
+        title = str(event[2]).strip() if len(event) > 2 and event[2] else ""
         try:
             win_start, win_end = stay_window(start, end, arrival_hour)
+            first, last = stay_days(start, end)
         except ValueError:
             continue
         if closed_at is not None and win_start <= closed_at:
             continue
         if win_start <= now < win_end:
-            return StayStatus(active=True)
-        if win_start > now:
-            upcoming.append(win_start)
-    return StayStatus(active=False, next_start=min(upcoming) if upcoming else None)
+            current.append((first, last, title))
+        elif win_start > now:
+            upcoming.append((win_start, first, last, title))
+    if current:
+        first = min(c[0] for c in current)
+        last = max(c[1] for c in current)
+        names = tuple(c[2] for c in current if c[2])
+        return StayStatus(active=True, days=(first, last), names=names)
+    if not upcoming:
+        return StayStatus(active=False)
+    nxt = min(u[0] for u in upcoming)
+    group = [u for u in upcoming if u[1] == nxt.date()]
+    return StayStatus(
+        active=False,
+        next_start=nxt,
+        days=(min(u[1] for u in group), max(u[2] for u in group)),
+        names=tuple(u[3] for u in group if u[3]),
+    )
 
 
 def frame_key(room_id: str, bed: int) -> str:
@@ -313,6 +372,7 @@ class PicPakManager:
         self._stays: dict[str, tuple[StayStatus, datetime]] = {}
         self._logo_sig: tuple | None = None
         self._logos: dict[str, bytes] = {}  # logo légendé par cadre
+        self._captions: dict[str, str] = {}  # dernière légende par cadre
 
     # ------------------------------------------------------------------ #
     # Cycle de vie
@@ -449,7 +509,7 @@ class PicPakManager:
     # ------------------------------------------------------------------ #
     async def _async_calendar_events(
         self, entity_id: str, start: datetime, end: datetime
-    ) -> list[tuple[str, str]]:
+    ) -> list[tuple[str, str, str]]:
         """Événements du calendrier entre ``start`` et ``end``."""
         response = await self.hass.services.async_call(
             "calendar",
@@ -461,7 +521,7 @@ class PicPakManager:
         )
         events = ((response or {}).get(entity_id) or {}).get("events") or []
         return [
-            (str(e["start"]), str(e["end"]))
+            (str(e["start"]), str(e["end"]), str(e.get("summary") or ""))
             for e in events
             if isinstance(e, dict) and e.get("start") and e.get("end")
         ]
@@ -556,29 +616,52 @@ class PicPakManager:
             sig.append((path, mtime))
         return tuple(sig)
 
-    def logo_caption(self, key: str) -> str:
-        """Légende du logo d'un cadre : « Chambre d'ami invité N°1 »."""
+    def logo_caption(self, key: str, stay: StayStatus | None = None) -> str:
+        """Légende du logo d'un cadre.
+
+        - Séjour programmé (ou en cours) d'après le calendrier : le nom de
+          l'invité de ce cadre et ses dates, sur deux lignes. Le nom vient du
+          helper du lit ; à défaut, du titre du n-ième événement du séjour.
+        - Sinon : « Chambre d'ami invité N°1 ».
+        """
         room_id, bed = key.rsplit("/", 1)
         engine = self._engines.get(room_id)
-        name = engine.room_name if engine else room_id
-        return f"{name} invité N°{bed}"
+        if stay is not None and stay.restricted and stay.days is not None:
+            frame = self.frames.get(key)
+            name = frame.guest_name if frame else None
+            if not name and len(stay.names) >= int(bed):
+                name = stay.names[int(bed) - 1]
+            if name:
+                return f"{name}\n{format_stay(*stay.days)}"
+        room = engine.room_name if engine else room_id
+        return f"{room} invité N°{bed}"
 
-    async def _async_logo(self, key: str) -> bytes:
-        """Logo du cadre ``key`` (avec sa légende), mis en cache par cadre."""
+    async def _async_logo(self, key: str, caption: str | None = None) -> bytes:
+        """Logo du cadre ``key`` avec sa légende, mis en cache.
+
+        Sans ``caption``, la dernière légende utilisée pour ce cadre.
+        """
         sig = await self.hass.async_add_executor_job(self._logo_signature)
         if sig != self._logo_sig:
             self._logos.clear()
             self._logo_sig = sig
-        if key not in self._logos:
+        if caption is None:
+            caption = self._captions.get(key) or self.logo_caption(key)
+        self._captions[key] = caption
+        cache_key = f"{key}|{caption}"
+        if cache_key not in self._logos:
             bed = int(key.rsplit("/", 1)[1])
-            self._logos[key] = await self.hass.async_add_executor_job(
+            # Une légende par cadre suffit : on oublie les précédentes.
+            for old in [k for k in self._logos if k.startswith(f"{key}|")]:
+                del self._logos[old]
+            self._logos[cache_key] = await self.hass.async_add_executor_job(
                 picpak_render.render_logo,
                 self.settings.logo_for_bed(bed),
                 self.settings.title,
                 self.settings.subtitle,
-                self.logo_caption(key),
+                caption,
             )
-        return self._logos[key]
+        return self._logos[cache_key]
 
     async def _async_render_asset(
         self, asset_id: str, person_id: str | None
@@ -661,12 +744,13 @@ class PicPakManager:
         interval = self.settings.interval_s
         quiet_left = quiet_remaining(now, self.settings.quiet)
         next_wake = interval
-        stay = await self.async_stay(room_id, now) if frame.assets else NO_CALENDAR
-        frame.in_stay = stay.active if stay.restricted else None
+        stay = await self.async_stay(room_id, now)
+        frame.in_stay = stay.active if stay.restricted and frame.assets else None
 
         if not frame.assets or not stay.active:
-            # Chambre libre, ou séjour pas encore commencé / terminé : le logo.
-            body = await self._async_logo(key)
+            # Chambre libre, ou séjour pas encore commencé / terminé : le logo,
+            # légendé avec le prochain séjour s'il y en a un.
+            body = await self._async_logo(key, self.logo_caption(key, stay))
             frame.shown = LOGO
             if stay.next_start is not None:
                 # Se réveiller juste après le début du séjour (9 h le jour J).
