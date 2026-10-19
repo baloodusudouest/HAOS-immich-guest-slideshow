@@ -444,10 +444,11 @@ from custom_components.immich_guest_slideshow.picpak import (  # noqa: E402
 )
 
 
-def test_stay_window_all_day_booking() -> None:
-    """Nuit du samedi (journée entière, fin exclusive = dimanche)."""
+def test_stay_window_all_day_event() -> None:
+    """Séjour saisi « journée entière » du samedi au dimanche inclus : Home
+    Assistant stocke la fin (exclusive) au lundi."""
     tz = dt_util.get_default_time_zone()
-    start, end = stay_window("2026-10-24", "2026-10-25", 9)
+    start, end = stay_window("2026-10-24", "2026-10-26", 9)
     assert start == datetime(2026, 10, 24, 9, 0, tzinfo=tz)
     assert end == datetime(2026, 10, 26, 0, 0, tzinfo=tz)  # tout le dimanche
 
@@ -465,7 +466,7 @@ def test_stay_window_timed_event() -> None:
 
 def test_stay_status_before_during_after() -> None:
     tz = dt_util.get_default_time_zone()
-    events = [("2026-10-24", "2026-10-25")]
+    events = [("2026-10-24", "2026-10-26")]
     monday = datetime(2026, 10, 19, 19, 0, tzinfo=tz)
     status = stay_status(events, monday, 9)
     assert not status.active
@@ -493,7 +494,7 @@ async def test_logo_until_the_stay_starts(
         return {
             "calendar.chambre_test": {
                 "events": [
-                    {"start": "2026-10-24", "end": "2026-10-25", "summary": "Alexia"}
+                    {"start": "2026-10-24", "end": "2026-10-26", "summary": "Alexia"}
                 ]
             }
         }
@@ -528,6 +529,11 @@ async def test_logo_until_the_stay_starts(
         assert await resp.read() != logo
         assert frame.in_stay is True and frame.shown in frame.assets
 
+        # Dimanche 23 h : toujours les photos
+        freezer.move_to(datetime(2026, 10, 25, 23, 0, tzinfo=tz))
+        resp = await client.get(_path(urls[1]))
+        assert await resp.read() != logo
+
         # Lundi 0 h 01 : séjour terminé -> logo
         freezer.move_to(datetime(2026, 10, 26, 0, 1, tzinfo=tz))
         resp = await client.get(_path(urls[1]))
@@ -549,6 +555,50 @@ async def test_no_calendar_shows_photos_right_away(
         body = await (await client.get(_path(urls[1]))).read()
         assert body != pr.render_logo(None, "Bienvenue", "")
         assert entry.runtime_data.picpak.frames["chambre_test/1"].in_stay is None
+    finally:
+        await hass.config_entries.async_unload(entry.entry_id)
+        patcher.stop()
+
+
+def test_reset_ends_the_current_stay_only() -> None:
+    tz = dt_util.get_default_time_zone()
+    events = [("2026-10-24", "2026-10-26"), ("2026-10-30", "2026-11-01")]
+    reset = datetime(2026, 10, 25, 15, 0, tzinfo=tz)
+    sunday_evening = datetime(2026, 10, 25, 18, 0, tzinfo=tz)
+    status = stay_status(events, sunday_evening, 9, closed_at=reset)
+    assert not status.active
+    assert status.next_start == datetime(2026, 10, 30, 9, 0, tzinfo=tz)
+    friday = datetime(2026, 10, 30, 10, 0, tzinfo=tz)
+    assert stay_status(events, friday, 9, closed_at=reset).active
+
+
+async def test_reset_button_shows_logo(
+    hass: HomeAssistant, hass_client_no_auth
+) -> None:
+    """Sans calendrier : logo après « réinitialiser » jusqu'au prochain invité."""
+    FakeImmich.photos = {frozenset([PEOPLE["Alexia"], PEOPLE["Propriétaire 1"]]): 4}
+    FakeImmich.fail = set()
+    hass.states.async_set("input_button.reinitialiser_chambre_hote", "2026-10-19T10:00:00")
+    entry, patcher = await _setup(hass, "Alexia")
+    try:
+        urls = await _urls(hass)
+        client = await hass_client_no_auth()
+        logo = pr.render_logo(None, "Bienvenue", "")
+        assert await (await client.get(_path(urls[1]))).read() != logo
+
+        hass.states.async_set(
+            "input_button.reinitialiser_chambre_hote", "2026-10-19T19:20:00"
+        )
+        await hass.async_block_till_done()
+        assert await (await client.get(_path(urls[1]))).read() == logo
+        assert await (await client.get(_path(urls[2]))).read() == logo
+
+        # Nouvel invité : la réinitialisation est levée
+        hass.states.async_set(HELPER_1, "Bruno")
+        await hass.async_block_till_done()
+        FakeImmich.photos[frozenset([PEOPLE["Bruno"]])] = 3
+        await entry.runtime_data.picpak.async_ensure_room("chambre_test", force=True)
+        assert await (await client.get(_path(urls[1]))).read() != logo
     finally:
         await hass.config_entries.async_unload(entry.entry_id)
         patcher.stop()
