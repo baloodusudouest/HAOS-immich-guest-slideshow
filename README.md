@@ -22,19 +22,28 @@ Les chambres sont entièrement configurables depuis l'interface ; par défaut :
 
 ### Logique des recherches Immich
 
+Pour chaque invité, les photos sont choisies par **niveaux de priorité**,
+jusqu'au nombre voulu (50 par cadre ou album, taille du cache pour le
+diaporama) :
+
+1. l'invité avec l'un des propriétaires (`I+P1`, `I+P2`), ce qui inclut les
+   photos avec les deux ;
+2. s'il manque des photos et que la chambre a deux invités : les invités
+   **ensemble** (`I1+I2`) ;
+3. s'il en manque encore : toutes les autres photos de l'invité (`I`).
+
 - **Aucun invité** → aucune photo, les entités passent en `unavailable`.
-- **Un invité (I1)** → 3 recherches : `I1+P1`, `I1+P2`, `I1+P1+P2`.
-- **Deux invités (I1, I2)** → 9 recherches : les 3 combos de I1, les 3 combos
-  de I2, puis `I1+I2+P1`, `I1+I2+P2`, `I1+I2+P1+P2`.
+- **Deux invités** : le diaporama de la chambre entrelace leurs photos ; sur
+  les cadres et les albums, chaque lit montre son occupant et les photos où
+  ils sont ensemble sont réparties entre les deux lits, sans doublon.
+- **Un invité seul dans une chambre à deux lits** : les deux cadres le
+  montrent, avec des photos différentes.
 
-**Repli automatique** : si un invité n'a aucune photo en commun avec les
-propriétaires, ses photos individuelles sont affichées à la place (le sensor
-indique alors uniquement son nom comme recherche courante).
-
-Les photos de toutes les recherches sont dédupliquées puis mises en **cache
-local** ; la rotation est **aléatoire sans doublon immédiat** et n'interroge
-**pas** Immich à chaque changement d'image. Quand un helper change, le cache
-de la chambre concernée est vidé et reconstruit automatiquement.
+Les recherches ne sont faites qu'au besoin (si le niveau 1 suffit, les
+suivants ne sont pas interrogés). La sélection est mise en **cache local** ;
+la rotation est **aléatoire sans doublon immédiat** et n'interroge **pas**
+Immich à chaque changement d'image. Quand un helper change, la sélection de
+la chambre est refaite automatiquement.
 
 ## Entités créées
 
@@ -186,9 +195,8 @@ fiche Immich) : le nom est alors **lié** à cet ID, pour toutes les chambres,
 et la liaison est conservée après redémarrage. Elle prime sur la recherche par
 nom. L'élément disparaît dès que le problème est résolu.
 
-Les photos trouvées sont **toujours toutes affichées**, même sous le minimum :
-en dessous du seuil, les photos individuelles de l'invité sont simplement
-ajoutées à celles qu'il a avec les propriétaires.
+Les photos trouvées sont **toujours affichées**, même sous le minimum : il ne
+sert qu'à prévenir.
 
 Si un **helper configuré pour une chambre n'existe pas** (renommé ou
 supprimé), une réparation « Helper introuvable » le signale : sans elle, la

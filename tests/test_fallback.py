@@ -47,7 +47,9 @@ class FakeApi:
         return [{"id": f"{key}#{i}"} for i in range(count)]
 
 
-def _engine(api: FakeApi, guests: dict[str, str]) -> SlideshowEngine:
+def _engine(
+    api: FakeApi, guests: dict[str, str], cache_size: int = 100
+) -> SlideshowEngine:
     hass = FakeHass(guests)
     return SlideshowEngine(
         hass,  # type: ignore[arg-type]
@@ -56,7 +58,7 @@ def _engine(api: FakeApi, guests: dict[str, str]) -> SlideshowEngine:
         room_name="Chambre test",
         helpers=list(guests),
         permanents=OWNERS,
-        cache_size=100,
+        cache_size=cache_size,
     )
 
 
@@ -73,10 +75,10 @@ def test_fallback_to_guest_alone_when_no_owner_photos() -> None:
     assert photo is not None and photo.search_label == "Alice"
 
 
-def test_no_fallback_when_owner_photos_exist() -> None:
-    """Des photos invité+propriétaire existent -> pas de recherche seule."""
+def test_no_fallback_when_owner_photos_reach_the_target() -> None:
+    """Assez de photos invité+propriétaire -> pas de recherche seule."""
     api = FakeApi({frozenset(["Alice", "Propriétaire 1"]): 3})
-    engine = _engine(api, {"input_text.h1": "Alice"})
+    engine = _engine(api, {"input_text.h1": "Alice"}, cache_size=3)
 
     asyncio.run(engine.async_rebuild())
 
@@ -85,7 +87,6 @@ def test_no_fallback_when_owner_photos_exist() -> None:
     assert [c.label for c in engine.combos] == [
         "Alice + Propriétaire 1",
         "Alice + Propriétaire 2",
-        "Alice + Propriétaire 1 + Propriétaire 2",
     ]
 
 
@@ -102,6 +103,6 @@ def test_fallback_is_per_guest() -> None:
     asyncio.run(engine.async_rebuild())
 
     labels = [c.label for c in engine.combos]
-    assert "Bob" in labels and "Alice" not in labels
-    assert ["Alice"] not in api.search_calls
+    # Sous la cible : niveau 2 (Alice + Bob), puis chacun seul.
+    assert "Alice + Bob" in labels and "Bob" in labels
     assert engine.photo_count == 7

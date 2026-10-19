@@ -37,7 +37,7 @@
           "cache_size": "Nombre max de photos en cache par chambre",
           "rebuild_hours": "Rafraîchissement du cache en heures (0 = désactivé)",
           "permanent_persons": "Personnes permanentes (noms exacts ou ID de personne Immich, séparés par des virgules)",
-          "min_photos": "Photos minimum par invité (en dessous, ses photos individuelles sont ajoutées et une réparation est créée)"
+          "min_photos": "Photos minimum par invité (en dessous, une réparation est créée)"
         }
       },
       "picpak": {
