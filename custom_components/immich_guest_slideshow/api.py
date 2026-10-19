@@ -313,6 +313,17 @@ class ImmichApiClient:
         except ImmichApiError as err:
             _LOGGER.debug("Renommage album %s ignoré: %s", album_id, err)
 
+    async def async_get_faces(self, asset_id: str) -> list[dict[str, Any]]:
+        """Visages détectés sur un asset (boîtes englobantes + personne).
+
+        Chaque élément porte ``boundingBoxX1/Y1/X2/Y2``, ``imageWidth``,
+        ``imageHeight`` et ``person`` (``{"id": ...}`` ou ``None``). Sert à
+        centrer le recadrage des cadres PicPak sur l'invité. Nécessite la
+        permission « face.read » de la clé API.
+        """
+        data = await self._request("GET", "/api/faces", params={"id": asset_id})
+        return [f for f in (data or []) if isinstance(f, dict)]
+
     async def async_get_thumbnail(
         self, asset_id: str, *, size: str = "preview"
     ) -> bytes:
