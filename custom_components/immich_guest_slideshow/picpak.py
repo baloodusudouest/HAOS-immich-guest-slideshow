@@ -304,6 +304,7 @@ class PicPakManager:
         # Statut de séjour par chambre : (statut, instant du calcul).
         self._stays: dict[str, tuple[StayStatus, datetime]] = {}
         self._logo_sig: tuple | None = None
+        self._logos: dict[str, bytes] = {}  # logo légendé par cadre
 
     # ------------------------------------------------------------------ #
     # Cycle de vie
@@ -336,7 +337,6 @@ class PicPakManager:
         cadres, sans attendre leur prochain réveil.
         """
         async def _warm() -> None:
-            await self._async_logo()
             # Sélections à jour dès le démarrage (et non au premier réveil) :
             # l'aperçu d'un cadre pas encore réveillé montre ainsi la bonne
             # image, et la première requête du cadre répond sans attendre Immich.
@@ -348,7 +348,7 @@ class PicPakManager:
                     if body is not None and key not in self._last_body:
                         self._set_body(key, body)
                 elif frame.shown == LOGO and key not in self._last_body:
-                    self._set_body(key, self._rendered[LOGO])
+                    self._set_body(key, await self._async_logo(key))
                 self._prefetch(key)
                 self._notify(key)
 
@@ -546,17 +546,28 @@ class PicPakManager:
             mtime = None
         return (path, mtime, self.settings.title, self.settings.subtitle)
 
-    async def _async_logo(self) -> bytes:
+    def logo_caption(self, key: str) -> str:
+        """Légende du logo d'un cadre : « Chambre d'ami invité N°1 »."""
+        room_id, bed = key.rsplit("/", 1)
+        engine = self._engines.get(room_id)
+        name = engine.room_name if engine else room_id
+        return f"{name} invité N°{bed}"
+
+    async def _async_logo(self, key: str) -> bytes:
+        """Logo du cadre ``key`` (avec sa légende), mis en cache par cadre."""
         sig = await self.hass.async_add_executor_job(self._logo_signature)
-        if sig != self._logo_sig or LOGO not in self._rendered:
-            self._rendered[LOGO] = await self.hass.async_add_executor_job(
+        if sig != self._logo_sig:
+            self._logos.clear()
+            self._logo_sig = sig
+        if key not in self._logos:
+            self._logos[key] = await self.hass.async_add_executor_job(
                 picpak_render.render_logo,
                 self.settings.logo_path,
                 self.settings.title,
                 self.settings.subtitle,
+                self.logo_caption(key),
             )
-            self._logo_sig = sig
-        return self._rendered[LOGO]
+        return self._logos[key]
 
     async def _async_render_asset(
         self, asset_id: str, person_id: str | None
@@ -644,7 +655,7 @@ class PicPakManager:
 
         if not frame.assets or not stay.active:
             # Chambre libre, ou séjour pas encore commencé / terminé : le logo.
-            body = await self._async_logo()
+            body = await self._async_logo(key)
             frame.shown = LOGO
             if stay.next_start is not None:
                 # Se réveiller juste après le début du séjour (9 h le jour J).
@@ -708,7 +719,7 @@ class PicPakManager:
             except TimeoutError:
                 _LOGGER.debug("PicPak %s : rendu de %s pas prêt à temps", key, asset_id)
                 previous = self._last_body.get(key)
-                return (previous or await self._async_logo()), False
+                return (previous or await self._async_logo(key)), False
             if body is not None:
                 frame.shown = asset_id
                 return body, True
@@ -716,7 +727,7 @@ class PicPakManager:
             frame.index = (frame.index + 1) % len(frame.assets)
             _LOGGER.debug("PicPak %s : essai %d en échec, photo suivante", key, attempt + 1)
         previous = self._last_body.get(key)
-        return (previous or await self._async_logo()), False
+        return (previous or await self._async_logo(key)), False
 
     def _record_telemetry(
         self,
@@ -793,12 +804,12 @@ class PicPakManager:
         cached = self._stays.get(key.rsplit("/", 1)[0])
         if cached is not None and not cached[0].active:
             asset_id = None  # hors séjour : le cadre affichera le logo
-        source = asset_id or LOGO
+        source = asset_id or f"{LOGO}{key}"
         cache_key = f"upcoming:{source}"
         if cache_key in self._preview_png:
             return self._preview_png[cache_key]
         if asset_id is None:
-            body = await self._async_logo()
+            body = await self._async_logo(key)
         else:
             task = self._render_task(asset_id, frame.person_id)
             try:
