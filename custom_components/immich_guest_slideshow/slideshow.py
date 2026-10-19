@@ -5,6 +5,7 @@ remplit le cache local et fournit la photo suivante à afficher.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import random
 import re
@@ -103,6 +104,48 @@ def build_search_combos(
     return combos
 
 
+def interleave(lists: list[list[str]]) -> list[str]:
+    """Entrelace plusieurs listes (a1, b1, a2, b2, …), sans doublon.
+
+    Sert à mélanger équitablement les photos de deux invités dans un même
+    niveau de priorité.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for i in range(max((len(x) for x in lists), default=0)):
+        for x in lists:
+            if i < len(x) and x[i] not in seen:
+                seen.add(x[i])
+                out.append(x[i])
+    return out
+
+
+def deal(
+    candidates: list[list[str]], picked: list[list[str]], used: set[str], size: int
+) -> None:
+    """Distribue un niveau de priorité entre plusieurs cadres, à tour de rôle.
+
+    ``candidates[i]`` : photos possibles pour le cadre ``i`` à ce niveau.
+    Chaque tour, chaque cadre encore incomplet prend sa prochaine photo non
+    encore attribuée : les cadres se partagent équitablement les photos
+    communes, sans jamais afficher la même. ``picked`` et ``used`` sont
+    complétés sur place.
+    """
+    iters = [iter(c) for c in candidates]
+    progress = True
+    while progress:
+        progress = False
+        for i, it in enumerate(iters):
+            if len(picked[i]) >= size:
+                continue
+            for asset in it:
+                if asset not in used:
+                    used.add(asset)
+                    picked[i].append(asset)
+                    progress = True
+                    break
+
+
 class SlideshowEngine:
     """Gère le diaporama d'une chambre : recherches, cache, rotation."""
 
@@ -122,9 +165,8 @@ class SlideshowEngine:
         """Initialise le moteur pour une chambre donnée.
 
         Args:
-            min_photos: minimum de photos attendu par invité. En dessous, les
-                photos individuelles de l'invité sont ajoutées ; si le total
-                reste inférieur, un problème « peu de photos » est signalé.
+            min_photos: minimum de photos attendu par invité ; en dessous, un
+                problème « peu de photos » est signalé.
             links: liaisons nom -> ID de personne Immich (prioritaires).
             reporter: reçoit les personnes introuvables / avec trop peu de
                 photos pour les signaler à l'utilisateur.
@@ -150,6 +192,11 @@ class SlideshowEngine:
         self._person_names: dict[str, str] = {}
         self.current: CachedPhoto | None = None
         self.combos: list[SearchCombo] = []
+        self._searches: dict[tuple[str, ...], list[str]] = {}
+        self._labels: dict[str, str] = {}
+        # Le diaporama et les cadres/albums sélectionnent sur le même moteur,
+        # parfois en même temps (changement d'invité) : une sélection à la fois.
+        self._select_lock = asyncio.Lock()
 
     # ------------------------------------------------------------------ #
     # Lecture des helpers
@@ -252,97 +299,139 @@ class SlideshowEngine:
             return combo
         return SearchCombo(combo.names, display)
 
+    # ------------------------------------------------------------------ #
+    # Recherches Immich par niveau de priorité
+    # ------------------------------------------------------------------ #
+    # Pour chaque invité, les photos sont prises dans cet ordre, jusqu'à
+    # atteindre le nombre voulu :
+    #   1. l'invité avec un propriétaire, l'autre, ou les deux ;
+    #   2. les invités de la chambre ensemble (s'ils sont plusieurs) ;
+    #   3. toutes les autres photos de l'invité.
+    # Les recherches ne sont faites qu'au besoin, et mémorisées le temps
+    # d'une sélection (``self._searches``).
+    async def _async_search(self, names: tuple[str, ...]) -> list[str]:
+        """Assets contenant toutes les personnes ``names`` (mémoïsé, mélangé)."""
+        if names in self._searches:
+            return self._searches[names]
+        assets: list[str] = []
+        try:
+            ids = [await self._resolve_person_id(n) for n in names]
+            if all(ids):
+                found = await self._api.async_search_assets(
+                    [pid for pid in ids if pid], limit=MAX_ASSETS_PER_SEARCH
+                )
+                assets = [a["id"] for a in found if a.get("id")]
+                combo = self._labelled(SearchCombo(names))
+                self.combos.append(combo)
+                for asset in assets:
+                    self._labels.setdefault(asset, combo.label)
+        except ImmichApiError as err:
+            _LOGGER.warning(
+                "[%s] Recherche '%s' en échec: %s",
+                self.room_id,
+                " + ".join(names),
+                err,
+            )
+        random.shuffle(assets)
+        self._searches[names] = assets
+        return assets
+
+    async def _async_tier(self, level: int, guest: str, guests: list[str]) -> list[str]:
+        """Photos d'un invité pour un niveau de priorité (1, 2 ou 3)."""
+        if level == 1:
+            return interleave(
+                [await self._async_search((guest, p)) for p in self._permanents]
+            )
+        if level == 2:
+            others = [g for g in guests if g != guest]
+            if not others:
+                return []
+            return await self._async_search(tuple(guests))
+        return await self._async_search((guest,))
+
+    def _reset_searches(self) -> None:
+        self._searches = {}
+        self._labels = {}
+        self.combos = []
+
+    async def async_select(
+        self, bed_guests: list[str | None], size: int
+    ) -> list[list[str]]:
+        """Sélection par niveaux pour plusieurs cadres (ou un seul diaporama).
+
+        ``bed_guests[i]`` : l'invité (ou les invités, pour le diaporama de la
+        chambre — voir ``async_rebuild``) dont le cadre ``i`` montre les
+        photos ; ``None`` pour un cadre sans invité. Les niveaux sont
+        distribués à tour de rôle entre les cadres, sans doublon.
+        """
+        guests = list(dict.fromkeys(g for g in bed_guests if g))
+        picked: list[list[str]] = [[] for _ in bed_guests]
+        used: set[str] = set()
+        for level in (1, 2, 3):
+            short = [
+                i for i, g in enumerate(bed_guests) if g and len(picked[i]) < size
+            ]
+            if not short:
+                break
+            candidates: list[list[str]] = [[] for _ in bed_guests]
+            for i in short:
+                candidates[i] = await self._async_tier(level, bed_guests[i], guests)
+            deal(candidates, picked, used, size)
+        return picked
+
     async def async_rebuild(self) -> None:
-        """Vide le cache, reconstruit les recherches et recharge les photos.
+        """Voir ``_async_rebuild`` (une sélection à la fois)."""
+        async with self._select_lock:
+            await self._async_rebuild()
+
+    async def _async_rebuild(self) -> None:
+        """Vide le cache, refait la sélection et recharge les photos.
 
         Appelé au démarrage et à chaque changement d'un helper input_text.
 
-        Toutes les photos trouvées sont conservées, même si leur nombre est
-        inférieur au minimum attendu : le minimum sert uniquement à décider
-        d'ajouter les photos individuelles de l'invité et de prévenir
-        l'utilisateur (personne introuvable ou trop peu de photos).
+        Le diaporama de la chambre suit les mêmes niveaux de priorité que les
+        cadres (voir ``_async_tier``), photos des invités entrelacées,
+        jusqu'à la taille du cache. Le minimum de photos sert uniquement à
+        prévenir l'utilisateur (personne introuvable ou trop peu de photos).
         """
         self._cache.clear()
         self.current = None
         self._person_ids.clear()
         self._person_names.clear()
-        guests = self.get_guests()
-        self.combos = build_search_combos(guests, self._permanents)
+        self._reset_searches()
+        guests = list(dict.fromkeys(self.get_guests()))
 
-        if not self.combos:
+        if not guests:
             _LOGGER.debug("[%s] Aucun invité: diaporama inactif", self.room_id)
             self._set_problems([])
             return
 
-        photos: list[CachedPhoto] = []
-        # Photos distinctes trouvées pour chaque invité (toutes recherches).
-        guest_assets: dict[str, set[str]] = {guest: set() for guest in guests}
-        for index, combo in enumerate(list(self.combos)):
-            try:
-                ids = [await self._resolve_person_id(n) for n in combo.names]
-                if any(pid is None for pid in ids):
-                    continue
-                assets = await self._api.async_search_assets(
-                    [pid for pid in ids if pid],
-                    limit=MAX_ASSETS_PER_SEARCH,
-                )
-            except ImmichApiError as err:
-                _LOGGER.warning(
-                    "[%s] Recherche '%s' en échec: %s",
-                    self.room_id,
-                    combo.label,
-                    err,
-                )
-                continue
-            # Les UUID sont résolus : on affiche les noms Immich correspondants.
-            combo = self._labelled(combo)
-            self.combos[index] = combo
-            for guest in guests:
-                if guest in combo.names:
-                    guest_assets[guest].update(
-                        a["id"] for a in assets if a.get("id")
-                    )
-            photos.extend(
-                CachedPhoto(asset_id=a["id"], search_label=combo.label)
-                for a in assets
-            )
-
-        # Repli : un invité avec moins de photos que le minimum (avec les
-        # propriétaires) reçoit en plus ses photos individuelles.
-        for guest in guests:
-            if len(guest_assets[guest]) >= self._min_photos:
-                continue
-            fallback = SearchCombo((guest,))
-            try:
-                pid = await self._resolve_person_id(guest)
-                if pid is None:
-                    continue
-                assets = await self._api.async_search_assets(
-                    [pid], limit=MAX_ASSETS_PER_SEARCH
-                )
-            except ImmichApiError as err:
-                _LOGGER.warning(
-                    "[%s] Repli '%s' en échec: %s", self.room_id, guest, err
-                )
-                continue
-            if assets:
-                _LOGGER.info(
-                    "[%s] Moins de %d photo(s) de '%s' avec les propriétaires: "
-                    "ajout de ses %d photo(s) individuelles",
-                    self.room_id,
-                    self._min_photos,
-                    guest,
-                    len(assets),
-                )
-                fallback = self._labelled(fallback)
-                self.combos.append(fallback)
-                guest_assets[guest].update(a["id"] for a in assets if a.get("id"))
-                photos.extend(
-                    CachedPhoto(asset_id=a["id"], search_label=fallback.label)
-                    for a in assets
-                )
-
+        size = self._cache.max_size
+        picked: list[str] = []
+        used: set[str] = set()
+        for level in (1, 2, 3):
+            if len(picked) >= size:
+                break
+            tiers = [await self._async_tier(level, g, guests) for g in guests]
+            deal([interleave(tiers)], [picked], used, size)
+            # deal() complète picked[0] : on travaille sur une seule « file ».
+        photos = [
+            CachedPhoto(asset_id=a, search_label=self._labels.get(a, ""))
+            for a in picked
+        ]
         self._cache.replace(photos)
+
+        # Comptage pour les signalements : toutes les photos connues de chaque
+        # invité (sa recherche individuelle si elle a été faite).
+        guest_assets: dict[str, set[str]] = {}
+        for guest in guests:
+            known: set[str] = set()
+            for names, assets in self._searches.items():
+                if guest in names:
+                    known.update(assets)
+            if len(known) < self._min_photos and (guest,) not in self._searches:
+                known.update(await self._async_search((guest,)))
+            guest_assets[guest] = known
         self._set_problems(self._collect_problems(guests, guest_assets))
         _LOGGER.debug(
             "[%s] Cache reconstruit: %d photo(s) via %d recherche(s)",
@@ -410,50 +499,6 @@ class SlideshowEngine:
     # ------------------------------------------------------------------ #
     # Albums Immich
     # ------------------------------------------------------------------ #
-    async def _async_assets_for_guest(self, guest: str) -> list[str]:
-        """Identifiants d'assets pour UN invité, avec la même cascade que le
-        diaporama : combinaisons avec les permanents, puis repli sur ses
-        photos individuelles.
-
-        Volontairement séparé de ``async_rebuild``, qui fusionne tous les
-        invités d'une chambre dans un cache unique. Les albums, eux, doivent
-        rester distincts par lit.
-        """
-        found: set[str] = set()
-        for combo in build_search_combos([guest], self._permanents):
-            try:
-                ids = [await self._resolve_person_id(n) for n in combo.names]
-                if any(pid is None for pid in ids):
-                    continue
-                assets = await self._api.async_search_assets(
-                    [pid for pid in ids if pid], limit=MAX_ASSETS_PER_SEARCH
-                )
-            except ImmichApiError as err:
-                _LOGGER.warning(
-                    "[%s] Recherche album '%s' en échec: %s",
-                    self.room_id,
-                    combo.label,
-                    err,
-                )
-                continue
-            found.update(a["id"] for a in assets if a.get("id"))
-
-        if found:
-            return sorted(found)
-
-        # Repli : aucune photo avec les permanents (première visite).
-        try:
-            pid = await self._resolve_person_id(guest)
-            if pid is None:
-                return []
-            assets = await self._api.async_search_assets(
-                [pid], limit=MAX_ASSETS_PER_SEARCH
-            )
-        except ImmichApiError as err:
-            _LOGGER.warning("[%s] Repli album '%s': %s", self.room_id, guest, err)
-            return []
-        return sorted({a["id"] for a in assets if a.get("id")})
-
     def _album_name(self, index: int, guest: str | None) -> str:
         """« PicPak Chambre d'ami 1 — Alice »."""
         base = f"{ALBUM_PREFIX} {self.room_name} {index + 1}"
@@ -536,61 +581,47 @@ class SlideshowEngine:
         """Sélection de photos par lit : ``[(invité, [asset_id, ...]), ...]``.
 
         Une entrée par helper (donc par lit, donc par cadre photo), dans
-        l'ordre des helpers :
+        l'ordre des helpers. Pour chaque cadre, jusqu'à ``size`` photos, par
+        niveau de priorité : invité avec les propriétaires, puis les invités
+        ensemble, puis l'invité seul (voir ``_async_tier``).
 
-        - Deux invités : chaque lit reçoit les photos de son occupant.
-        - Un seul invité, plusieurs lits : tous les lits puisent dans le même
-          ensemble, mais sur des tranches DISJOINTES après mélange, pour que
-          les cadres n'affichent jamais la même photo au même moment. Chaque
-          lit porte alors le nom de cet invité.
+        - Deux invités : chaque cadre montre son occupant ; les photos où ils
+          sont ensemble sont réparties entre les deux cadres, sans doublon.
+        - Un seul invité, plusieurs lits : tous les cadres le montrent, avec
+          des photos différentes (distribution à tour de rôle).
         - Lit vide (et pas d'occupant unique) : ``(None, [])``.
 
         Args:
-            fill_empty: si une tranche se retrouve vide alors que l'invité a
-                des photos (moins de photos que de lits), elle reçoit tout
-                l'ensemble plutôt que rien. Utile aux cadres, qui doivent
-                montrer l'invité plutôt que l'écran « chambre libre ».
+            fill_empty: un cadre qui ne reçoit aucune photo alors que son
+                invité en a (moins de photos que de cadres) reçoit quand même
+                ses photos, quitte à les partager. Utile aux cadres, qui
+                doivent montrer l'invité plutôt que l'écran « chambre libre ».
         """
+        async with self._select_lock:
+            return await self._async_bed_playlists(size, fill_empty)
+
+    async def _async_bed_playlists(
+        self, size: int, fill_empty: bool
+    ) -> list[tuple[str | None, list[str]]]:
         beds = self.get_guests_by_bed()
         occupied = [g for g in beds if g]
         if not occupied:
             return [(None, []) for _ in beds]
-
-        distinct = set(occupied)
-        if len(distinct) == 1 and len(beds) > 1:
-            # Occupant unique : on mélange puis on découpe en tranches
-            # disjointes. Un simple décalage d'indice ne suffirait pas — avec
-            # un pas d'échantillonnage régulier il retomberait sur les mêmes
-            # photos.
-            guest = next(iter(distinct))
-            pool = await self._async_assets_for_guest(guest)
-            random.shuffle(pool)
-            # On découpe sur le nombre de LITS, pas sur le nombre de lits
-            # occupés : un invité seul dans une chambre à deux cadres doit
-            # alimenter les deux, avec des photos différentes.
-            n_slots = len(beds)
-            if len(pool) >= size * n_slots:
-                tranches = [
-                    pool[i * size:(i + 1) * size] for i in range(n_slots)
-                ]
-            else:
-                step = max(1, len(pool) // max(1, n_slots))
-                tranches = [
-                    pool[i * step:(i + 1) * step] for i in range(n_slots)
-                ]
-            if fill_empty and pool:
-                tranches = [t or list(pool[:size]) for t in tranches]
-            return [(guest, tranche) for tranche in tranches]
-
-        plans: list[tuple[str | None, list[str]]] = []
-        for guest in beds:
-            if not guest:
-                plans.append((None, []))
-                continue
-            pool = await self._async_assets_for_guest(guest)
-            random.shuffle(pool)
-            plans.append((guest, pool[:size]))
-        return plans
+        self._reset_searches()
+        distinct = list(dict.fromkeys(occupied))
+        if len(distinct) == 1:
+            # Occupant unique : il alimente tous les cadres de la chambre.
+            beds = [distinct[0]] * len(beds)
+        picked = await self.async_select(beds, size)
+        if fill_empty:
+            for i, guest in enumerate(beds):
+                if guest and not picked[i]:
+                    picked[i] = list(
+                        interleave(
+                            [await self._async_tier(lvl, guest, distinct) for lvl in (1, 2, 3)]
+                        )[:size]
+                    )
+        return list(zip(beds, picked, strict=True))
 
     async def async_sync_albums(self, size: int) -> list[dict]:
         """Synchronise un album Immich par lit occupé.

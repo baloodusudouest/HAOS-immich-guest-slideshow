@@ -119,6 +119,7 @@ def _engine(
     reporter: FakeReporter | None = None,
     min_photos: int = 2,
     permanents: list[str] | None = None,
+    cache_size: int = 100,
 ) -> SlideshowEngine:
     return SlideshowEngine(
         FakeHass({"input_text.h1": guest}),  # type: ignore[arg-type]
@@ -127,7 +128,7 @@ def _engine(
         room_name="Chambre test",
         helpers=["input_text.h1"],
         permanents=permanents if permanents is not None else [OWNER1, OWNER2],
-        cache_size=100,
+        cache_size=cache_size,
         min_photos=min_photos,
         links=links,
         reporter=reporter,
@@ -223,12 +224,24 @@ def test_one_photo_with_owner_adds_individual_photos_and_keeps_all() -> None:
 
 
 def test_enough_photos_with_owners_no_fallback() -> None:
+    """Cible atteinte avec les propriétaires : pas de photos seules."""
+    api = FakeApi({frozenset([ALEXIA, OWNER1]): 2, frozenset([ALEXIA]): 9})
+    engine = _engine(api, ALEXIA, cache_size=2)
+
+    asyncio.run(engine.async_rebuild())
+
+    assert engine.photo_count == 2
+    assert all(" + " in (engine.next_photo().search_label) for _ in range(4))
+
+
+def test_photos_alone_complete_up_to_the_target() -> None:
+    """Sous la cible : les photos de l'invité seul complètent la sélection."""
     api = FakeApi({frozenset([ALEXIA, OWNER1]): 2, frozenset([ALEXIA]): 9})
     engine = _engine(api, ALEXIA)
 
     asyncio.run(engine.async_rebuild())
 
-    assert engine.photo_count == 2  # seuil atteint : pas de repli
+    assert engine.photo_count == 11
 
 
 def test_below_minimum_still_shows_everything_and_reports() -> None:

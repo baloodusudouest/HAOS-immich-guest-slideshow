@@ -77,10 +77,10 @@ def _engine(api: FakeApi, guest: str, permanents: list[str]) -> SlideshowEngine:
         room_name="Chambre test",
         helpers=["input_text.h1"],
         permanents=permanents,
-        cache_size=100,
-        # Le faux Immich renvoie 1 photo par recherche : on fixe le minimum à 1
-        # pour que ces tests ne déclenchent pas le repli sur les photos seules
-        # (couvert par test_person_links.py).
+        # Le faux Immich renvoie 1 photo par recherche : avec une cible de
+        # 1 photo, la 1re recherche (invité + propriétaire) suffit et les
+        # niveaux suivants ne sont pas interrogés (couverts par test_tiers.py).
+        cache_size=1,
         min_photos=1,
     )
 
