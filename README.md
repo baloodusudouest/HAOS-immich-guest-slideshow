@@ -106,9 +106,12 @@ convertissez-le en PNG.
 
 Si la chambre a un calendrier `calendar.<chambre>` (ex. `calendar.chambre_ami`),
 les cadres n'affichent les photos que **pendant le séjour** : du jour d'arrivée
-à 9 h (réglable) jusqu'à la fin du jour de départ. Avant (invité déjà
-renseigné, séjour à venir) et après : le logo. Sans calendrier, l'invité est
-montré dès qu'il est renseigné.
+à 9 h (réglable) jusqu'à la fin du jour de départ (dernier jour couvert par
+l'événement). Avant (invité déjà renseigné, séjour à venir) et après : le
+logo. Sans calendrier, l'invité est montré dès qu'il est renseigné.
+
+Le bouton `input_button.reinitialiser_chambre_hote` (réglable) termine les
+séjours en cours : logo sur tous les cadres à leur prochain réveil.
 
 ### Fonctionnement
 
