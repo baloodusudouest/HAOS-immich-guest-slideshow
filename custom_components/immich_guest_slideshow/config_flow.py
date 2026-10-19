@@ -43,6 +43,7 @@ from .const import (
     CONF_PICPAK_BASE_URL,
     CONF_PICPAK_INTERVAL,
     CONF_PICPAK_LOGO,
+    CONF_PICPAK_LOGO_2,
     CONF_PICPAK_PHOTOS,
     CONF_PICPAK_QUIET,
     CONF_PICPAK_RESET_BUTTON,
@@ -59,6 +60,7 @@ from .const import (
     DEFAULT_PICPAK_BASE_URL,
     DEFAULT_PICPAK_INTERVAL,
     DEFAULT_PICPAK_LOGO,
+    DEFAULT_PICPAK_LOGO_2,
     DEFAULT_PICPAK_PHOTOS,
     DEFAULT_PICPAK_QUIET,
     DEFAULT_PICPAK_RESET_BUTTON,
@@ -225,6 +227,9 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
                 self.options[CONF_PICPAK_LOGO] = (
                     user_input.get(CONF_PICPAK_LOGO) or ""
                 ).strip()
+                self.options[CONF_PICPAK_LOGO_2] = (
+                    user_input.get(CONF_PICPAK_LOGO_2) or ""
+                ).strip()
                 self.options[CONF_PICPAK_TITLE] = (
                     user_input.get(CONF_PICPAK_TITLE) or ""
                 ).strip()
@@ -261,6 +266,7 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
                 ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
                 _text(CONF_PICPAK_QUIET, DEFAULT_PICPAK_QUIET): str,
                 _text(CONF_PICPAK_LOGO, DEFAULT_PICPAK_LOGO): str,
+                _text(CONF_PICPAK_LOGO_2, DEFAULT_PICPAK_LOGO_2): str,
                 _text(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE): str,
                 _text(CONF_PICPAK_SUBTITLE, DEFAULT_PICPAK_SUBTITLE): str,
                 _text(CONF_PICPAK_BASE_URL, DEFAULT_PICPAK_BASE_URL): str,
