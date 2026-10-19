@@ -97,6 +97,7 @@ CONF_PICPAK_TITLE: Final = "picpak_title"         # logo texte de secours
 CONF_PICPAK_SUBTITLE: Final = "picpak_subtitle"
 CONF_PICPAK_BASE_URL: Final = "picpak_base_url"   # URL locale de HA vue du cadre
 CONF_PICPAK_ARRIVAL_HOUR: Final = "picpak_arrival_hour"  # début des photos le jour J
+CONF_PICPAK_RESET_BUTTON: Final = "picpak_reset_button"  # fin de séjour manuelle
 
 DEFAULT_PICPAK_INTERVAL: Final = 60
 DEFAULT_PICPAK_PHOTOS: Final = 50
@@ -106,6 +107,7 @@ DEFAULT_PICPAK_TITLE: Final = "Bienvenue"
 DEFAULT_PICPAK_SUBTITLE: Final = ""
 DEFAULT_PICPAK_BASE_URL: Final = ""
 DEFAULT_PICPAK_ARRIVAL_HOUR: Final = 9
+DEFAULT_PICPAK_RESET_BUTTON: Final = "input_button.reinitialiser_chambre_hote"
 # Calendrier des séjours d'une chambre : calendar.<identifiant de la chambre>.
 # Sans ce calendrier, les cadres montrent l'invité dès qu'il est renseigné.
 PICPAK_CALENDAR: Final = "calendar.{room_id}"

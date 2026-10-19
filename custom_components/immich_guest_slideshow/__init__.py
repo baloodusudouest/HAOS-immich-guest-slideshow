@@ -20,6 +20,7 @@ from homeassistant.core import (
     ServiceCall,
     ServiceResponse,
     SupportsResponse,
+    callback,
 )
 from homeassistant.exceptions import (
     ConfigEntryNotReady,
@@ -59,6 +60,7 @@ from .const import (
     CONF_PICPAK_LOGO,
     CONF_PICPAK_PHOTOS,
     CONF_PICPAK_QUIET,
+    CONF_PICPAK_RESET_BUTTON,
     CONF_PICPAK_SUBTITLE,
     CONF_PICPAK_TITLE,
     CONF_REBUILD_HOURS,
@@ -75,6 +77,7 @@ from .const import (
     DEFAULT_PICPAK_LOGO,
     DEFAULT_PICPAK_PHOTOS,
     DEFAULT_PICPAK_QUIET,
+    DEFAULT_PICPAK_RESET_BUTTON,
     DEFAULT_PICPAK_SUBTITLE,
     DEFAULT_PICPAK_TITLE,
     DEFAULT_REBUILD_HOURS,
@@ -207,6 +210,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
             hass, list(helper_to_room), _on_helper_change
         )
     )
+
+    # --- Bouton de réinitialisation de la maison (fin de séjour) --------- #
+    reset_button = str(
+        entry.options.get(CONF_PICPAK_RESET_BUTTON, DEFAULT_PICPAK_RESET_BUTTON) or ""
+    ).strip()
+
+    @callback
+    def _on_reset_pressed(event: Event[EventStateChangedData]) -> None:
+        """Un input_button change d'état (horodatage) à chaque appui."""
+        old = event.data["old_state"]
+        new = event.data["new_state"]
+        if old is None or new is None or old.state == new.state:
+            return
+        if new.state in ("unknown", "unavailable"):
+            return
+        picpak.async_reset_house()
+
+    if reset_button:
+        entry.async_on_unload(
+            async_track_state_change_event(hass, [reset_button], _on_reset_pressed)
+        )
 
     # --- Helpers manquants ---------------------------------------------- #
     # Pendant le démarrage, les états des helpers ne sont pas tous chargés :

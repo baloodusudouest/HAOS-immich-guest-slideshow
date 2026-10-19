@@ -45,6 +45,7 @@ from .const import (
     CONF_PICPAK_LOGO,
     CONF_PICPAK_PHOTOS,
     CONF_PICPAK_QUIET,
+    CONF_PICPAK_RESET_BUTTON,
     CONF_PICPAK_SUBTITLE,
     CONF_PICPAK_TITLE,
     CONF_REBUILD_HOURS,
@@ -60,6 +61,7 @@ from .const import (
     DEFAULT_PICPAK_LOGO,
     DEFAULT_PICPAK_PHOTOS,
     DEFAULT_PICPAK_QUIET,
+    DEFAULT_PICPAK_RESET_BUTTON,
     DEFAULT_PICPAK_SUBTITLE,
     DEFAULT_PICPAK_TITLE,
     DEFAULT_REBUILD_HOURS,
@@ -230,6 +232,9 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
                     user_input.get(CONF_PICPAK_SUBTITLE) or ""
                 ).strip()
                 self.options[CONF_PICPAK_BASE_URL] = base_url
+                self.options[CONF_PICPAK_RESET_BUTTON] = (
+                    user_input.get(CONF_PICPAK_RESET_BUTTON) or ""
+                ).strip()
                 return self.async_create_entry(title="", data=self.options)
             opts = {**opts, **user_input}
 
@@ -259,6 +264,7 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
                 _text(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE): str,
                 _text(CONF_PICPAK_SUBTITLE, DEFAULT_PICPAK_SUBTITLE): str,
                 _text(CONF_PICPAK_BASE_URL, DEFAULT_PICPAK_BASE_URL): str,
+                _text(CONF_PICPAK_RESET_BUTTON, DEFAULT_PICPAK_RESET_BUTTON): str,
             }
         )
         return self.async_show_form(step_id="picpak", data_schema=schema, errors=errors)

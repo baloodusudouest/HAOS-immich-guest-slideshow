@@ -51,7 +51,8 @@
           "picpak_logo": "Logo shown when the room is free (path to a PNG)",
           "picpak_title": "Text logo title, when the logo file is missing",
           "picpak_subtitle": "Text logo subtitle",
-          "picpak_base_url": "Local Home Assistant URL as seen by the frames (empty = automatic)"
+          "picpak_base_url": "Local Home Assistant URL as seen by the frames (empty = automatic)",
+          "picpak_reset_button": "House reset button (ends current stays, logo on the frames)"
         }
       },
       "add_room": {
