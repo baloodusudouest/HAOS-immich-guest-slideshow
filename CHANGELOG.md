@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.8.1 — 2026-10-19
+
+- Le jour de départ est le dernier jour couvert par l'événement dans le
+  calendrier : un séjour saisi « journée entière » du samedi au dimanche
+  affiche les photos jusqu'à dimanche minuit (Home Assistant stocke une fin
+  exclusive au lundi) ; un événement avec heures, jusqu'à la fin de son jour.
+- **Bouton de réinitialisation** (`input_button.reinitialiser_chambre_hote`
+  par défaut, réglable) : un appui termine les séjours en cours, les cadres
+  affichent le logo à leur prochain réveil. Les séjours à venir s'afficheront
+  normalement ; une chambre sans calendrier garde le logo jusqu'au prochain
+  changement d'invité.
+
 ## 1.8.0 — 2026-10-19
 
 ### Cadres PicPak : photos seulement pendant le séjour
@@ -9,9 +21,7 @@
   `calendar.chambre_ami`) : du jour d'arrivée à **9 h** (réglable : option
   « Heure de début des photos le jour d'arrivée ») jusqu'à la **fin du jour
   de départ**. Avant et après : le logo.
-- Le jour de départ est la date de fin de l'événement ; pour un événement
-  « journée entière » (fin exclusive), c'est la date de départ des
-  réservations (nuit du samedi = samedi → dimanche).
+- Le jour de départ est la date de fin de l'événement.
 - Le cadre se réveille juste après le début du séjour pour passer aux photos
   à l'heure.
 - Sans calendrier pour la chambre, comportement inchangé : l'invité est montré

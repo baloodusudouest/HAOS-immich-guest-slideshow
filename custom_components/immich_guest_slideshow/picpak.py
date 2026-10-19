@@ -145,14 +145,19 @@ def stay_window(
 ) -> tuple[datetime, datetime]:
     """Fenêtre d'affichage des photos pour un séjour du calendrier.
 
-    Du jour d'arrivée à ``arrival_hour`` jusqu'à la fin du jour de départ.
-    Le jour de départ est la date de fin de l'événement : pour un événement
-    « journée entière », la fin est exclusive et correspond à la date de
-    départ (format des calendriers de réservation : une nuit du samedi =
-    samedi → dimanche).
+    Du jour d'arrivée à ``arrival_hour`` jusqu'à la fin du jour de départ,
+    c'est-à-dire le dernier jour couvert par l'événement tel qu'il apparaît
+    dans le calendrier :
+
+    - événement avec heures : le jour de sa fin ;
+    - événement « journée entière » : Home Assistant stocke une fin exclusive
+      (un séjour saisi du samedi au dimanche inclus finit « lundi ») ; le
+      dernier jour couvert est donc la veille de cette fin.
     """
     start_day, _ = _as_local(start)
-    end_day, _ = _as_local(end)
+    end_day, all_day = _as_local(end)
+    if all_day:
+        end_day -= timedelta(days=1)
     end_day = max(end_day, start_day)
     tz = dt_util.get_default_time_zone()
     win_start = datetime.combine(start_day, time(arrival_hour), tzinfo=tz)
@@ -176,13 +181,20 @@ def stay_status(
     events: list[tuple[date | datetime | str, date | datetime | str]],
     now: datetime,
     arrival_hour: int,
+    closed_at: datetime | None = None,
 ) -> StayStatus:
-    """Statut du séjour à ``now`` d'après les événements du calendrier."""
+    """Statut du séjour à ``now`` d'après les événements du calendrier.
+
+    ``closed_at`` : instant d'une réinitialisation de la maison ; tout séjour
+    déjà commencé à cet instant est considéré comme terminé.
+    """
     upcoming: list[datetime] = []
     for start, end in events:
         try:
             win_start, win_end = stay_window(start, end, arrival_hour)
         except ValueError:
+            continue
+        if closed_at is not None and win_start <= closed_at:
             continue
         if win_start <= now < win_end:
             return StayStatus(active=True)
@@ -274,6 +286,11 @@ class PicPakManager:
             hass, STORAGE_VERSION, f"{DOMAIN}.picpak.{entry_id}"
         )
         self.token: str = ""
+        # Dernier appui sur le bouton de réinitialisation de la maison.
+        self.closed_at: datetime | None = None
+        # Chambres sans calendrier réinitialisées : logo jusqu'au prochain
+        # changement d'invité.
+        self._closed_rooms: set[str] = set()
         self.frames: dict[str, FrameState] = {}
         # Tampons rendus : asset_id (ou LOGO) -> 30 000 octets. Petit cache
         # partagé par tous les cadres, borné.
@@ -295,6 +312,9 @@ class PicPakManager:
         """Charge l'état persistant et crée les cadres manquants."""
         data = await self._store.async_load() or {}
         self.token = str(data.get("token") or "") or secrets.token_urlsafe(16)
+        closed = data.get("closed_at")
+        self.closed_at = dt_util.parse_datetime(closed) if closed else None
+        self._closed_rooms = set(data.get("closed_rooms") or [])
         stored = data.get("frames") or {}
         self.frames = {}
         for room_id, engine in self._engines.items():
@@ -344,6 +364,8 @@ class PicPakManager:
     def _data_to_save(self) -> dict[str, Any]:
         return {
             "token": self.token,
+            "closed_at": self.closed_at.isoformat() if self.closed_at else None,
+            "closed_rooms": sorted(self._closed_rooms),
             "frames": {k: f.as_dict() for k, f in self.frames.items()},
         }
 
@@ -461,14 +483,38 @@ class PicPakManager:
             except Exception as err:  # noqa: BLE001 - calendrier indisponible
                 _LOGGER.warning("PicPak : calendrier %s illisible: %s", entity_id, err)
                 return cached[0] if cached else NO_CALENDAR
-            status = stay_status(events, now, self.settings.arrival_hour)
+            status = stay_status(
+                events, now, self.settings.arrival_hour, self.closed_at
+            )
+        if not status.restricted and room_id in self._closed_rooms:
+            status = StayStatus(active=False)
         self._stays[room_id] = (status, now)
         return status
+
+    @callback
+    def async_reset_house(self) -> None:
+        """Bouton « réinitialiser » : fin des séjours en cours, logo partout.
+
+        Les cadres ne peuvent pas être réveillés à distance : le logo s'affiche
+        à leur prochain réveil (ou tout de suite sur un appui de leur bouton).
+        Un séjour qui commence plus tard s'affichera normalement ; une chambre
+        sans calendrier garde le logo jusqu'au prochain changement d'invité.
+        """
+        self.closed_at = dt_util.now()
+        self._closed_rooms = set(self._engines)
+        self._stays.clear()
+        self._schedule_save()
+        _LOGGER.info("PicPak : maison réinitialisée, logo sur tous les cadres")
+        for key in self.frames:
+            self._notify(key)
 
     @callback
     def async_room_changed(self, room_id: str) -> None:
         """Un helper de la chambre a changé : nouvelle sélection en arrière-plan."""
         self._stays.pop(room_id, None)  # la réservation a pu changer aussi
+        if room_id in self._closed_rooms:
+            self._closed_rooms.discard(room_id)
+            self._schedule_save()
         if room_id in self._engines:
             self.hass.async_create_background_task(
                 self.async_ensure_room(room_id), f"{DOMAIN} picpak {room_id}"
