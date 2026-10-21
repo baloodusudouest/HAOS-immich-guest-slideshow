@@ -748,3 +748,72 @@ async def test_faces_mode_shows_the_room_card(
     finally:
         await hass.config_entries.async_unload(entry.entry_id)
         patcher.stop()
+
+
+async def test_mode_is_chosen_per_frame(
+    hass: HomeAssistant, hass_client_no_auth
+) -> None:
+    """Chaque cadre a son entité « Affichage » : visages sur l'un, photos sur
+    l'autre."""
+    FakeImmich.photos = {
+        frozenset([PEOPLE["Alexia"], PEOPLE["Propriétaire 1"]]): 6,
+        frozenset([PEOPLE["Bruno"], PEOPLE["Propriétaire 1"]]): 6,
+    }
+    FakeImmich.fail = set()
+    FakeImmich.person_thumbs = []
+    entry, patcher = await _setup(hass, "Alexia", "Bruno")
+    try:
+        sel1 = "select.picpak_chambre_test_1_affichage"
+        sel2 = "select.picpak_chambre_test_2_affichage"
+        assert hass.states.get(sel1).state == "photos"
+        assert hass.states.get(sel2).state == "photos"
+        assert hass.states.get(sel1).attributes["options"] == ["photos", "visages"]
+
+        await hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": sel1, "option": "visages"},
+            blocking=True,
+        )
+        await hass.async_block_till_done()
+        assert hass.states.get(sel1).state == "visages"
+        assert hass.states.get(sel2).state == "photos"
+
+        urls = await _urls(hass)
+        client = await hass_client_no_auth()
+        await (await client.get(_path(urls[1]))).read()
+        await (await client.get(_path(urls[2]))).read()
+        manager = entry.runtime_data.picpak
+        assert manager.frames["chambre_test/1"].shown == "__visages__"
+        assert manager.frames["chambre_test/2"].shown not in ("__visages__", "__logo__")
+        assert manager.frames["chambre_test/2"].shown in manager.frames["chambre_test/2"].assets
+
+        # Le choix est enregistré avec l'état des cadres.
+        assert manager._data_to_save()["frames"]["chambre_test/1"]["mode"] == "visages"
+
+        # Retour aux photos : la photo suivante dès le prochain réveil.
+        await hass.services.async_call(
+            "select",
+            "select_option",
+            {"entity_id": sel1, "option": "photos"},
+            blocking=True,
+        )
+        await (await client.get(_path(urls[1]))).read()
+        assert manager.frames["chambre_test/1"].shown in manager.frames["chambre_test/1"].assets
+    finally:
+        await hass.config_entries.async_unload(entry.entry_id)
+        patcher.stop()
+
+
+async def test_former_global_option_is_the_initial_choice(hass: HomeAssistant) -> None:
+    """Mise à jour depuis < 1.11 : l'ancien réglage global devient le choix
+    initial de chaque cadre."""
+    FakeImmich.photos = {frozenset([PEOPLE["Alexia"], PEOPLE["Propriétaire 1"]]): 3}
+    FakeImmich.fail = set()
+    entry, patcher = await _setup(hass, "Alexia", "Bruno", **{CONF_PICPAK_MODE: "visages"})
+    try:
+        assert hass.states.get("select.picpak_chambre_test_1_affichage").state == "visages"
+        assert hass.states.get("select.picpak_chambre_test_2_affichage").state == "visages"
+    finally:
+        await hass.config_entries.async_unload(entry.entry_id)
+        patcher.stop()

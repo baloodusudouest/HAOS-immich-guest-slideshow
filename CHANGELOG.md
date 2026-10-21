@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.11.0 — 2026-10-21
+
+- Cadres PicPak : le choix **photos / visages** se fait maintenant **cadre
+  par cadre**, avec une nouvelle entité
+  `select.picpak_<chambre>_<lit>_affichage` (« Affichage pendant le séjour »)
+  sur l'appareil de chaque cadre. Le choix est mémorisé, s'applique au
+  prochain réveil du cadre, et l'aperçu `image.picpak_…` le montre tout de
+  suite. L'option globale « Pendant le séjour, afficher » disparaît des
+  options : sa valeur actuelle devient le choix initial de chaque cadre.
+- Options → Cadres PicPak : correction de l'erreur d'affichage
+  « Translation error: UNCLOSED_TAG » sur l'heure de début des photos
+  (libellé contenant `<chambre>`) ; même correction dans la réparation
+  « personne introuvable ».
+
 ## 1.10.0 — 2026-10-21
 
 - Cadres PicPak : nouveau **mode « visages »** (Options → Cadres PicPak →
