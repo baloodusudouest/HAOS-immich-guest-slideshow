@@ -90,13 +90,13 @@ def test_deal_respects_size() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Cadres / albums : un invité par lit
+# Cadres : un invité par cadre, sans doublon
 # --------------------------------------------------------------------------- #
 def _two_guests_library() -> dict[str, set[str]]:
     lib: dict[str, set[str]] = {}
+    lib |= _photos("A+J+Y", 1, {"Alice", "Julien", "Yves"})
     lib |= _photos("A+J", 3, {"Alice", "Julien"})
     lib |= _photos("A+Y", 2, {"Alice", "Yves"})
-    lib |= _photos("A+J+Y", 1, {"Alice", "Julien", "Yves"})
     lib |= _photos("B+Y", 2, {"Bob", "Yves"})
     lib |= _photos("A+B", 6, {"Alice", "Bob"})
     lib |= _photos("A", 10, {"Alice"})
@@ -104,67 +104,76 @@ def _two_guests_library() -> dict[str, set[str]]:
     return lib
 
 
-def test_two_guests_priority_order_and_no_duplicates() -> None:
+def _tier(asset: str) -> int:
+    """Niveau de priorité d'une photo de la bibliothèque de test."""
+    for level, prefix in enumerate(("A+J+Y", "A+J", "A+Y", "B+Y", "A+B")):
+        if asset.startswith(prefix + "#") or asset.rstrip("0123456789") == prefix:
+            return {0: 0, 1: 1, 2: 2, 3: 2, 4: 3}[level]
+    return 4
+
+
+def test_two_guests_one_per_frame_priority_and_no_duplicates() -> None:
     api = FakeImmich(_two_guests_library())
     engine = _engine(api, ["Alice", "Bob"])
 
-    plans = asyncio.run(engine.async_bed_playlists(10))
+    alice, bob = asyncio.run(engine.async_frame_playlists([["Alice"], ["Bob"]], 10))
 
-    (g1, alice), (g2, bob) = plans
-    assert (g1, g2) == ("Alice", "Bob")
     assert not set(alice) & set(bob)  # jamais la même photo sur les 2 cadres
-    # Alice : ses 6 photos avec les propriétaires d'abord…
-    assert all(a.startswith(("A+J", "A+Y")) for a in alice[:6])
-    # … puis des photos avec Bob, puis seule.
-    rest = alice[6:]
-    assert rest and all(a.startswith(("A+B", "A")) for a in rest)
     assert len(alice) == 10 and len(bob) == 10
+    # Alice : avec Julien et Yves, puis avec Julien, puis avec Yves…
+    assert alice[0].startswith("A+J+Y")
+    assert [_tier(a) for a in alice] == sorted(_tier(a) for a in alice)
+    assert {a for a in alice[:6]} == {a for a in alice if a.startswith(("A+J", "A+Y"))}
     # Les 6 photos « ensemble » sont réparties entre les deux cadres.
-    together_alice = [a for a in alice if a.startswith("A+B")]
-    together_bob = [a for a in bob if a.startswith("A+B")]
-    assert together_alice and together_bob
-    assert len(together_alice) + len(together_bob) == 6
+    together = [a for a in alice + bob if a.startswith("A+B")]
+    assert len(together) == 6
+    assert any(a.startswith("A+B") for a in alice) and any(a.startswith("A+B") for a in bob)
 
 
-def test_bob_takes_together_photos_before_alone() -> None:
+def test_bob_order_owner_then_together_then_alone() -> None:
     api = FakeImmich(_two_guests_library())
     engine = _engine(api, ["Alice", "Bob"])
 
-    (_, _), (_, bob) = asyncio.run(engine.async_bed_playlists(10))
+    _, bob = asyncio.run(engine.async_frame_playlists([["Alice"], ["Bob"]], 10))
 
     tiers = [
-        "own" if a.startswith("B+Y") else "together" if a.startswith("A+B") else "alone"
-        for a in bob
+        0 if a.startswith("B+Y") else 1 if a.startswith("A+B") else 2 for a in bob
     ]
-    # Ordre respecté : propriétaires, puis ensemble, puis seul.
-    order = {"own": 0, "together": 1, "alone": 2}
-    assert [order[t] for t in tiers] == sorted(order[t] for t in tiers)
-    assert tiers.count("own") == 2
+    assert tiers == sorted(tiers)
+    assert tiers.count(0) == 2
+
+
+def test_single_guest_two_frames_disjoint() -> None:
+    api = FakeImmich(_two_guests_library())
+    engine = _engine(api, ["Alice", ""])
+
+    f1, f2 = asyncio.run(engine.async_frame_playlists([["Alice"], ["Alice"]], 5))
+
+    assert not set(f1) & set(f2)
+    assert len(f1) == len(f2) == 5
+    own = [a for a in f1 + f2 if a.startswith(("A+J", "A+Y"))]
+    assert len(own) == 6  # toutes ses photos avec les propriétaires utilisées
+
+
+def test_one_frame_two_guests_mixed() -> None:
+    api = FakeImmich(_two_guests_library())
+    engine = _engine(api, ["Alice", "Bob"])
+
+    (mixed,) = asyncio.run(engine.async_frame_playlists([["Alice", "Bob"]], 12))
+
+    assert any(a.startswith("A") and not a.startswith("A+B") for a in mixed)
+    assert any(a.startswith("B") for a in mixed)
+    assert len(mixed) == len(set(mixed)) == 12
 
 
 def test_target_reached_with_owners_skips_other_searches() -> None:
     api = FakeImmich(_two_guests_library())
     engine = _engine(api, ["Alice", ""])
 
-    plans = asyncio.run(engine.async_bed_playlists(3))
+    f1, f2 = asyncio.run(engine.async_frame_playlists([["Alice"], ["Alice"]], 3))
 
-    # Invité seul dans la chambre : les deux cadres le montrent.
-    assert [g for g, _ in plans] == ["Alice", "Alice"]
-    assert all(len(p) == 3 for _, p in plans)
-    assert frozenset({"Alice"}) not in api.searches  # cible atteinte au niveau 1
-
-
-def test_single_guest_two_frames_disjoint_owner_photos_first() -> None:
-    api = FakeImmich(_two_guests_library())
-    engine = _engine(api, ["Alice", ""])
-
-    (_, f1), (_, f2) = asyncio.run(engine.async_bed_playlists(5))
-
-    assert not set(f1) & set(f2)
-    own = [a for a in f1 + f2 if a.startswith(("A+J", "A+Y"))]
-    assert len(own) == 6  # toutes ses photos avec les propriétaires utilisées
-    # Pas de niveau 2 sans second invité : la suite vient de ses photos.
-    assert len(f1) == len(f2) == 5
+    assert len(f1) == len(f2) == 3
+    assert frozenset({"Alice"}) not in api.searches  # cible atteinte avant
 
 
 # --------------------------------------------------------------------------- #
@@ -179,6 +188,6 @@ def test_room_slideshow_follows_the_same_priorities() -> None:
     ids = {p.asset_id for p in engine._cache._photos}  # noqa: SLF001
     own = {a for a in ids if a.startswith(("A+J", "A+Y", "B+Y"))}
     together = {a for a in ids if a.startswith("A+B")}
-    assert len(own) == 8  # tout le niveau 1
-    assert len(together) == 4  # complété par le niveau 2, sans aller au 3
+    assert len(own) == 8  # tous les niveaux avec propriétaires
+    assert len(together) == 4  # complété par « ensemble », sans aller au seul
     assert len(ids) == 12

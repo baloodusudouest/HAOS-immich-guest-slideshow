@@ -1,18 +1,24 @@
-"""Intégration Immich Guest Slideshow.
+"""Intégration Immich Guest Slideshow (v2).
 
-Crée un moteur de diaporama indépendant par chambre, écoute les helpers
-input_text (invités) et expose des entités image + sensor par chambre.
+Une entrée par serveur Immich (URL, clé API, propriétaires), et **une
+sous-entrée par chambre** — une ligne par chambre dans Paramètres → Appareils
+et services — qui regroupe :
 
-Alimente aussi les cadres e-ink PicPak (un par lit) : voir :mod:`.picpak`.
+- le diaporama des dashboards invité et gestionnaire (``image.immich_<chambre>``) ;
+- les cadres PicPak de la chambre (0 à 2) et celui de sa porte (facultatif).
+
+Voir :mod:`.slideshow` (choix des photos), :mod:`.stay` (séjours d'après le
+calendrier) et :mod:`.picpak` (cadres e-ink).
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from functools import partial
+from types import MappingProxyType
 
 import voluptuous as vol
-
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import Platform
 from homeassistant.core import (
     Event,
@@ -29,19 +35,17 @@ from homeassistant.exceptions import (
 )
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (
     EventStateChangedData,
     async_track_state_change_event,
 )
 from homeassistant.helpers.start import async_at_started
+from homeassistant.helpers.storage import Store
+from homeassistant.util import slugify
 
-from .api import (
-    ImmichApiClient,
-    ImmichApiError,
-    extract_person_uuid,
-    normalize_name,
-)
+from .api import ImmichApiClient, ImmichApiError, extract_person_uuid, normalize_name
 from .const import (
     ATTR_BASE_URL,
     ATTR_BED,
@@ -50,46 +54,52 @@ from .const import (
     ATTR_ROOM,
     ATTR_SIZE,
     CONF_API_KEY,
+    CONF_ARRIVAL_HOUR,
     CONF_CACHE_SIZE,
     CONF_INTERVAL,
     CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
-    CONF_PICPAK_ARRIVAL_HOUR,
     CONF_PICPAK_BASE_URL,
     CONF_PICPAK_INTERVAL,
     CONF_PICPAK_LOGO,
     CONF_PICPAK_LOGO_2,
-    CONF_PICPAK_MODE,
     CONF_PICPAK_PHOTOS,
     CONF_PICPAK_QUIET,
     CONF_PICPAK_RESET_BUTTON,
     CONF_PICPAK_SUBTITLE,
     CONF_PICPAK_TITLE,
     CONF_REBUILD_HOURS,
-    CONF_ROOMS,
     CONF_URL,
     DEFAULT_ALBUM_SIZE,
+    DEFAULT_ARRIVAL_HOUR,
     DEFAULT_CACHE_SIZE,
     DEFAULT_INTERVAL,
     DEFAULT_MIN_PHOTOS,
     DEFAULT_PERMANENT_PERSONS,
-    DEFAULT_PICPAK_ARRIVAL_HOUR,
     DEFAULT_PICPAK_BASE_URL,
     DEFAULT_PICPAK_INTERVAL,
     DEFAULT_PICPAK_LOGO,
     DEFAULT_PICPAK_LOGO_2,
-    DEFAULT_PICPAK_MODE,
     DEFAULT_PICPAK_PHOTOS,
     DEFAULT_PICPAK_QUIET,
     DEFAULT_PICPAK_RESET_BUTTON,
     DEFAULT_PICPAK_SUBTITLE,
     DEFAULT_PICPAK_TITLE,
     DEFAULT_REBUILD_HOURS,
-    DEFAULT_ROOMS,
     DOMAIN,
-    KEY_HELPERS,
-    KEY_NAME,
+    LEGACY_CONF_ROOMS,
+    LEGACY_KEY_HELPERS,
+    LEGACY_KEY_NAME,
+    LEGACY_PICPAK_ARRIVAL_HOUR,
+    LEGACY_PICPAK_MODE,
     MAX_ALBUM_SIZE,
+    MAX_ROOM_FRAMES,
+    ROOM_CALENDAR,
+    ROOM_DOOR_FRAME,
+    ROOM_FRAMES,
+    ROOM_HELPERS,
+    ROOM_ID,
+    ROOM_NAME,
     SERVICE_LINK_PERSON,
     SERVICE_NEXT,
     SERVICE_PICPAK_NEXT,
@@ -97,19 +107,22 @@ from .const import (
     SERVICE_REFRESH,
     SERVICE_SYNC_ALBUMS,
     SERVICE_UNLINK_PERSON,
+    SUBENTRY_ROOM,
 )
 from .coordinator import RoomCoordinator
 from .person_links import PersonLinks
-from .picpak import PicPakFrameView, PicPakManager, PicPakSettings, parse_quiet
+from .picpak import PicPakFrameView, PicPakManager, PicPakSettings
 from .problems import ProblemReporter
+from .room import RoomConfig, RoomRuntime
 from .slideshow import SlideshowEngine
+from .stay import StayTracker, parse_quiet
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.IMAGE, Platform.SELECT, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.IMAGE, Platform.SENSOR]
 
-# La vue HTTP des cadres est globale (une seule par instance de HA) : elle
-# retrouve la bonne config entry grâce au jeton de l'URL.
+# La vue HTTP des cadres est globale (une par instance de HA) : elle retrouve
+# la bonne entrée grâce au jeton de l'URL.
 _PICPAK_VIEW_KEY = f"{DOMAIN}_picpak_view"
 
 type ImmichConfigEntry = ConfigEntry[ImmichRuntimeData]
@@ -122,107 +135,254 @@ class ImmichRuntimeData:
     api: ImmichApiClient
     links: PersonLinks
     reporter: ProblemReporter
-    coordinators: dict[str, RoomCoordinator] = field(default_factory=dict)
-    picpak: PicPakManager | None = None
+    picpak: PicPakManager
+    rooms: dict[str, RoomRuntime] = field(default_factory=dict)
+
+    @property
+    def coordinators(self) -> dict[str, RoomCoordinator]:
+        """Coordinateur du diaporama de chaque chambre."""
+        return {r: room.coordinator for r, room in self.rooms.items() if room.coordinator}
 
     async def async_rebuild_all(self) -> None:
         """Reconstruit toutes les chambres (après un changement de liaison)."""
-        for coordinator in self.coordinators.values():
-            await coordinator.async_rebuild_and_refresh()
+        for room_id, room in self.rooms.items():
+            if room.coordinator is not None:
+                await room.coordinator.async_rebuild_and_refresh()
+            self.picpak.async_room_changed(room_id, guests_changed=False)
+
+
+# --------------------------------------------------------------------------- #
+# Migration v1 -> v2 : chambres en sous-entrées
+# --------------------------------------------------------------------------- #
+def _guess_calendar(hass: HomeAssistant, room_id: str, name: str) -> str | None:
+    """Calendrier probable d'une chambre v1 (``calendar.<chambre>``)."""
+    registry = er.async_get(hass)
+    candidates = [
+        f"calendar.{room_id}",
+        f"calendar.{room_id.replace('_d_', '_')}",
+        f"calendar.{slugify(name)}",
+        f"calendar.{slugify(name).replace('_d_', '_')}",
+    ]
+    for entity_id in dict.fromkeys(candidates):
+        if registry.async_get(entity_id) is not None or hass.states.get(entity_id):
+            return entity_id
+    return None
+
+
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """v1 (chambres dans les options) -> v2 (une sous-entrée par chambre).
+
+    Rien n'est perdu : identifiants des chambres, entités (mêmes entity_id),
+    jeton et URL des cadres déjà flashés. Une chambre reçoit autant de cadres
+    qu'elle en avait de **déjà connectés** ; le cadre de porte est à activer
+    dans les réglages de la chambre.
+    """
+    if entry.version > 2:
+        return False
+    if entry.version == 2:
+        return True
+
+    options = dict(entry.options)
+    legacy_rooms: dict[str, dict] = dict(options.pop(LEGACY_CONF_ROOMS, None) or {})
+    options.pop(LEGACY_PICPAK_MODE, None)
+    if LEGACY_PICPAK_ARRIVAL_HOUR in options:
+        options[CONF_ARRIVAL_HOUR] = options.pop(LEGACY_PICPAK_ARRIVAL_HOUR)
+    # Nouveau rythme des dashboards : 100 photos, une toutes les 15 s.
+    options[CONF_INTERVAL] = DEFAULT_INTERVAL
+    options[CONF_CACHE_SIZE] = DEFAULT_CACHE_SIZE
+
+    stored = await Store(hass, 1, f"{DOMAIN}.picpak.{entry.entry_id}").async_load() or {}
+    seen_frames = {
+        key
+        for key, frame in (stored.get("frames") or {}).items()
+        if isinstance(frame, dict) and frame.get("last_seen")
+    }
+
+    dev_reg = dr.async_get(hass)
+    ent_reg = er.async_get(hass)
+    hass.config_entries.async_update_entry(entry, options=options)
+
+    # v1.11 : entités « Affichage pendant le séjour » (photos / visages) par
+    # cadre, remplacées par le cadre de porte.
+    for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        if ent.domain == "select":
+            ent_reg.async_remove(ent.entity_id)
+
+    for room_id, room in legacy_rooms.items():
+        name = str(room.get(LEGACY_KEY_NAME) or room_id)
+        helpers = list(room.get(LEGACY_KEY_HELPERS) or [])[:2]
+        frames = sum(
+            1 for slot in range(1, MAX_ROOM_FRAMES + 1) if f"{room_id}/{slot}" in seen_frames
+        )
+        subentry = ConfigSubentry(
+            data=MappingProxyType(
+                {
+                    ROOM_ID: room_id,
+                    ROOM_NAME: name,
+                    ROOM_HELPERS: helpers,
+                    ROOM_CALENDAR: _guess_calendar(hass, room_id, name),
+                    ROOM_DOOR_FRAME: False,
+                    ROOM_FRAMES: frames,
+                }
+            ),
+            subentry_type=SUBENTRY_ROOM,
+            title=name,
+            unique_id=room_id,
+        )
+        hass.config_entries.async_add_subentry(entry, subentry)
+        sid = subentry.subentry_id
+        prefix = f"{entry.entry_id}_{room_id}"
+        for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+            ident = next((i[1] for i in device.identifiers if i[0] == DOMAIN), "")
+            if ident != prefix and not ident.startswith(f"{prefix}_picpak_"):
+                continue
+            dev_reg.async_update_device(
+                device.id, add_config_entry_id=entry.entry_id, add_config_subentry_id=sid
+            )
+            dev_reg.async_update_device(
+                device.id, remove_config_entry_id=entry.entry_id, remove_config_subentry_id=None
+            )
+        for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+            if ent.unique_id.startswith(f"{prefix}_"):
+                ent_reg.async_update_entity(ent.entity_id, config_subentry_id=sid)
+
+    hass.config_entries.async_update_entry(entry, version=2, minor_version=1)
+    _LOGGER.info(
+        "Immich Guest Slideshow migré en v2 : %d chambre(s) en sous-entrées",
+        len(legacy_rooms),
+    )
+    return True
+
+
+# --------------------------------------------------------------------------- #
+# Mise en place
+# --------------------------------------------------------------------------- #
+def _picpak_settings(entry: ConfigEntry) -> PicPakSettings:
+    opts = entry.options
+    return PicPakSettings(
+        interval_min=int(opts.get(CONF_PICPAK_INTERVAL, DEFAULT_PICPAK_INTERVAL)),
+        photos=int(opts.get(CONF_PICPAK_PHOTOS, DEFAULT_PICPAK_PHOTOS)),
+        quiet=parse_quiet(opts.get(CONF_PICPAK_QUIET, DEFAULT_PICPAK_QUIET)),
+        logo_path=str(opts.get(CONF_PICPAK_LOGO, DEFAULT_PICPAK_LOGO) or ""),
+        logo_path_2=str(opts.get(CONF_PICPAK_LOGO_2, DEFAULT_PICPAK_LOGO_2) or ""),
+        title=str(opts.get(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE) or ""),
+        subtitle=str(opts.get(CONF_PICPAK_SUBTITLE, DEFAULT_PICPAK_SUBTITLE) or ""),
+        base_url=str(opts.get(CONF_PICPAK_BASE_URL, DEFAULT_PICPAK_BASE_URL) or ""),
+    )
+
+
+def room_configs(entry: ConfigEntry) -> list[RoomConfig]:
+    """Chambres de l'entrée (sous-entrées « room »)."""
+    return [
+        RoomConfig.from_data(sub.data, sub.subentry_id)
+        for sub in entry.subentries.values()
+        if sub.subentry_type == SUBENTRY_ROOM and sub.data.get(ROOM_ID)
+    ]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bool:
     """Configure l'intégration depuis une config entry."""
     session = async_get_clientsession(hass)
     api = ImmichApiClient(entry.data[CONF_URL], entry.data[CONF_API_KEY], session)
-
     try:
         await api.async_validate_connection()
     except ImmichApiError as err:
         raise ConfigEntryNotReady(err) from err
 
-    interval = entry.options.get(CONF_INTERVAL, DEFAULT_INTERVAL)
-    cache_size = entry.options.get(CONF_CACHE_SIZE, DEFAULT_CACHE_SIZE)
-    rebuild_hours = entry.options.get(CONF_REBUILD_HOURS, DEFAULT_REBUILD_HOURS)
-    min_photos = entry.options.get(CONF_MIN_PHOTOS, DEFAULT_MIN_PHOTOS)
-    permanents = entry.options.get(
-        CONF_PERMANENT_PERSONS, DEFAULT_PERMANENT_PERSONS
-    )
-    rooms: dict[str, dict] = entry.options.get(CONF_ROOMS) or DEFAULT_ROOMS
+    opts = entry.options
+    interval = int(opts.get(CONF_INTERVAL, DEFAULT_INTERVAL))
+    cache_size = int(opts.get(CONF_CACHE_SIZE, DEFAULT_CACHE_SIZE))
+    rebuild_hours = int(opts.get(CONF_REBUILD_HOURS, DEFAULT_REBUILD_HOURS))
+    min_photos = int(opts.get(CONF_MIN_PHOTOS, DEFAULT_MIN_PHOTOS))
+    arrival_hour = int(opts.get(CONF_ARRIVAL_HOUR, DEFAULT_ARRIVAL_HOUR))
+    permanents = list(opts.get(CONF_PERMANENT_PERSONS, DEFAULT_PERMANENT_PERSONS))
 
     links = PersonLinks.create(hass, entry.entry_id)
     await links.async_load()
     reporter = ProblemReporter(hass, entry.entry_id)
-    runtime = ImmichRuntimeData(api=api, links=links, reporter=reporter)
-    helper_to_room: dict[str, str] = {}
+    picpak = PicPakManager(hass, entry.entry_id, api, _picpak_settings(entry))
+    await picpak.async_load()
+    runtime = ImmichRuntimeData(api=api, links=links, reporter=reporter, picpak=picpak)
 
-    for room_id, room in rooms.items():
+    helper_to_room: dict[str, str] = {}
+    calendar_to_rooms: dict[str, list[str]] = {}
+    for config in room_configs(entry):
+        room_id = config.room_id
         engine = SlideshowEngine(
             hass,
             api,
             room_id=room_id,
-            room_name=room[KEY_NAME],
-            helpers=room[KEY_HELPERS],
+            room_name=config.name,
+            helpers=list(config.helpers),
             permanents=permanents,
             cache_size=cache_size,
             min_photos=min_photos,
             links=links,
             reporter=reporter,
         )
-        coordinator = RoomCoordinator(hass, engine, interval, rebuild_hours)
-        await engine.async_rebuild()
-        await coordinator.async_config_entry_first_refresh()
-        runtime.coordinators[room_id] = coordinator
-        for helper in room[KEY_HELPERS]:
+        stay = StayTracker(
+            hass,
+            config.calendar,
+            arrival_hour,
+            closed_at=lambda: picpak.closed_at,
+            closed_without_calendar=partial(picpak.is_closed_without_calendar, room_id),
+        )
+        room = RoomRuntime(config=config, engine=engine, stay=stay)
+        room.coordinator = RoomCoordinator(hass, engine, stay, interval, rebuild_hours)
+        runtime.rooms[room_id] = room
+        for helper in config.helpers:
             helper_to_room[helper] = room_id
+        if config.calendar:
+            calendar_to_rooms.setdefault(config.calendar, []).append(room_id)
 
-    # --- Cadres PicPak ---------------------------------------------------- #
-    picpak = PicPakManager(
-        hass,
-        entry.entry_id,
-        api,
-        {room_id: c.engine for room_id, c in runtime.coordinators.items()},
-        _picpak_settings(entry),
-    )
-    await picpak.async_load()
-    runtime.picpak = picpak
+    picpak.async_attach_rooms(runtime.rooms)
+    for room in runtime.rooms.values():
+        await room.engine.async_rebuild()
+        await room.coordinator.async_config_entry_first_refresh()
+
     if not hass.data.get(_PICPAK_VIEW_KEY):
         hass.http.register_view(PicPakFrameView())
         hass.data[_PICPAK_VIEW_KEY] = True
 
     entry.runtime_data = runtime
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = runtime
-    _async_cleanup_stale_devices(hass, entry, set(rooms))
+    _async_cleanup_stale_devices(hass, entry, runtime)
 
-    # --- Détection des changements d'invités ---------------------------- #
+    # --- Invités modifiés ------------------------------------------------- #
     async def _on_helper_change(event: Event[EventStateChangedData]) -> None:
-        """Un helper a changé : rebuild du cache de la chambre concernée."""
-        entity_id = event.data["entity_id"]
         old = event.data["old_state"]
         new = event.data["new_state"]
         if old is not None and new is not None and old.state == new.state:
             return
-        room_id = helper_to_room.get(entity_id)
+        room_id = helper_to_room.get(event.data["entity_id"])
         if room_id is None:
             return
-        _LOGGER.debug("Helper %s modifié -> rebuild %s", entity_id, room_id)
         picpak.async_room_changed(room_id)
-        await runtime.coordinators[room_id].async_rebuild_and_refresh()
+        await runtime.rooms[room_id].coordinator.async_rebuild_and_refresh()
 
-    entry.async_on_unload(
-        async_track_state_change_event(
-            hass, list(helper_to_room), _on_helper_change
+    if helper_to_room:
+        entry.async_on_unload(
+            async_track_state_change_event(hass, list(helper_to_room), _on_helper_change)
         )
-    )
 
-    # --- Bouton de réinitialisation de la maison (fin de séjour) --------- #
+    # --- Début / fin d'un événement du calendrier -------------------------- #
+    @callback
+    def _on_calendar_change(event: Event[EventStateChangedData]) -> None:
+        for room_id in calendar_to_rooms.get(event.data["entity_id"], []):
+            picpak.async_room_changed(room_id, guests_changed=False)
+
+    if calendar_to_rooms:
+        entry.async_on_unload(
+            async_track_state_change_event(hass, list(calendar_to_rooms), _on_calendar_change)
+        )
+
+    # --- Bouton de réinitialisation de la maison (fin des séjours) --------- #
     reset_button = str(
-        entry.options.get(CONF_PICPAK_RESET_BUTTON, DEFAULT_PICPAK_RESET_BUTTON) or ""
+        opts.get(CONF_PICPAK_RESET_BUTTON, DEFAULT_PICPAK_RESET_BUTTON) or ""
     ).strip()
 
     @callback
     def _on_reset_pressed(event: Event[EventStateChangedData]) -> None:
-        """Un input_button change d'état (horodatage) à chaque appui."""
         old = event.data["old_state"]
         new = event.data["new_state"]
         if old is None or new is None or old.state == new.state:
@@ -236,65 +396,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
             async_track_state_change_event(hass, [reset_button], _on_reset_pressed)
         )
 
-    # --- Helpers manquants ---------------------------------------------- #
-    # Pendant le démarrage, les états des helpers ne sont pas tous chargés :
-    # le signalement des helpers inexistants attend la fin du démarrage.
+    # --- Une fois HA démarré : helpers manquants, calendriers chargés ------ #
     async def _on_started(_hass: HomeAssistant) -> None:
-        for coordinator in runtime.coordinators.values():
-            coordinator.engine.refresh_problems()
+        for room_id, room in runtime.rooms.items():
+            room.engine.refresh_problems()
+            picpak.async_room_changed(room_id, guests_changed=False)
 
     entry.async_on_unload(async_at_started(hass, _on_started))
 
-    # --- Service manuel de rafraîchissement ----------------------------- #
-    async def _handle_refresh(call: ServiceCall) -> None:
-        """Service immich_guest_slideshow.refresh."""
+    _async_register_services(hass, runtime)
+    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    picpak.async_start()
+    return True
+
+
+def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) -> None:
+    """Services de l'intégration."""
+    api = runtime.api
+    links = runtime.links
+    picpak = runtime.picpak
+
+    def _rooms(call: ServiceCall) -> list[RoomRuntime]:
         room = call.data.get(ATTR_ROOM)
-        targets = (
-            [runtime.coordinators[room]]
-            if room and room in runtime.coordinators
-            else list(runtime.coordinators.values())
-        )
-        for coordinator in targets:
-            await coordinator.async_rebuild_and_refresh()
+        if room and room not in runtime.rooms:
+            raise ServiceValidationError(f"Chambre inconnue : {room}")
+        return [runtime.rooms[room]] if room else list(runtime.rooms.values())
+
+    async def _handle_refresh(call: ServiceCall) -> None:
+        for room in _rooms(call):
+            await room.coordinator.async_rebuild_and_refresh()
+            picpak.async_room_changed(room.config.room_id, guests_changed=False)
 
     async def _handle_next(call: ServiceCall) -> None:
-        """Service immich_guest_slideshow.next : image suivante immédiate."""
-        room = call.data.get(ATTR_ROOM)
-        targets = (
-            [runtime.coordinators[room]]
-            if room and room in runtime.coordinators
-            else list(runtime.coordinators.values())
-        )
-        for coordinator in targets:
-            await coordinator.async_refresh()
+        for room in _rooms(call):
+            await room.coordinator.async_refresh()
 
     async def _handle_sync_albums(call: ServiceCall) -> ServiceResponse:
-        """Service immich_guest_slideshow.sync_albums.
-
-        Crée ou met à jour un album Immich par lit occupé, pour alimenter un
-        cadre photo qui ne sait pas recevoir d'image automatiquement. Retourne
-        le détail des albums touchés afin qu'une automatisation puisse le
-        notifier.
-        """
-        room = call.data.get(ATTR_ROOM)
         size = int(call.data.get(ATTR_SIZE, DEFAULT_ALBUM_SIZE))
-        targets = (
-            [runtime.coordinators[room]]
-            if room and room in runtime.coordinators
-            else list(runtime.coordinators.values())
-        )
         albums: list[dict] = []
-        for coordinator in targets:
-            albums.extend(await coordinator.engine.async_sync_albums(size))
+        for room in _rooms(call):
+            albums.extend(await room.engine.async_sync_albums(size))
         return {"albums": albums}
 
     async def _handle_link_person(call: ServiceCall) -> None:
-        """Service immich_guest_slideshow.link_person.
-
-        Lie un nom (tel que saisi dans un helper ou dans les personnes
-        permanentes) à l'ID d'une personne Immich. La liaison est mémorisée
-        et prime ensuite sur la recherche par nom.
-        """
         name = normalize_name(call.data[ATTR_NAME])
         person_id = extract_person_uuid(call.data[ATTR_PERSON_ID])
         if not name:
@@ -309,51 +454,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         except ImmichApiError as err:
             raise HomeAssistantError(f"Immich injoignable: {err}") from err
         if person is None:
-            raise ServiceValidationError(
-                f"Aucune personne Immich avec l'ID {person_id}"
-            )
+            raise ServiceValidationError(f"Aucune personne Immich avec l'ID {person_id}")
         await links.async_set(name, person_id)
         await runtime.async_rebuild_all()
 
     async def _handle_unlink_person(call: ServiceCall) -> ServiceResponse:
-        """Service immich_guest_slideshow.unlink_person.
-
-        Efface la liaison d'un nom, ou toutes les liaisons si aucun nom n'est
-        donné.
-        """
         removed = await links.async_remove(call.data.get(ATTR_NAME))
         if removed:
             await runtime.async_rebuild_all()
         return {"removed": removed}
 
     async def _handle_picpak_urls(call: ServiceCall) -> ServiceResponse:
-        """Service immich_guest_slideshow.picpak_urls.
-
-        Renvoie l'URL à enregistrer dans chaque cadre (commande SETURL de la
-        console du firmware). L'URL contient le jeton d'accès : elle n'est
-        exposée nulle part ailleurs (ni attribut, ni journal).
-        """
         return {"frames": picpak.urls(call.data.get(ATTR_BASE_URL))}
 
     async def _handle_picpak_next(call: ServiceCall) -> ServiceResponse:
-        """Service immich_guest_slideshow.picpak_next.
+        rooms = _rooms(call)
+        room_id = rooms[0].config.room_id if call.data.get(ATTR_ROOM) else None
+        slot = call.data.get(ATTR_BED)
+        return {"frames": picpak.request_next(room_id, str(slot) if slot else None)}
 
-        Les cadres ne peuvent pas être réveillés à distance : la photo
-        suivante s'affichera à leur prochain réveil (ou tout de suite sur un
-        appui de leur bouton).
-        """
-        room = call.data.get(ATTR_ROOM)
-        if room and room not in runtime.coordinators:
-            raise ServiceValidationError(f"Chambre inconnue : {room}")
-        return {"frames": picpak.request_next(room, call.data.get(ATTR_BED))}
-
-    service_schema = vol.Schema({vol.Optional(ATTR_ROOM): cv.string})
-    hass.services.async_register(
-        DOMAIN, SERVICE_REFRESH, _handle_refresh, schema=service_schema
-    )
-    hass.services.async_register(
-        DOMAIN, SERVICE_NEXT, _handle_next, schema=service_schema
-    )
+    room_schema = vol.Schema({vol.Optional(ATTR_ROOM): cv.string})
+    hass.services.async_register(DOMAIN, SERVICE_REFRESH, _handle_refresh, schema=room_schema)
+    hass.services.async_register(DOMAIN, SERVICE_NEXT, _handle_next, schema=room_schema)
     hass.services.async_register(
         DOMAIN,
         SERVICE_SYNC_ALBUMS,
@@ -368,16 +490,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         ),
         supports_response=SupportsResponse.OPTIONAL,
     )
-
     hass.services.async_register(
         DOMAIN,
         SERVICE_LINK_PERSON,
         _handle_link_person,
         schema=vol.Schema(
-            {
-                vol.Required(ATTR_NAME): cv.string,
-                vol.Required(ATTR_PERSON_ID): cv.string,
-            }
+            {vol.Required(ATTR_NAME): cv.string, vol.Required(ATTR_PERSON_ID): cv.string}
         ),
     )
     hass.services.async_register(
@@ -387,7 +505,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         schema=vol.Schema({vol.Optional(ATTR_NAME): cv.string}),
         supports_response=SupportsResponse.OPTIONAL,
     )
-
     hass.services.async_register(
         DOMAIN,
         SERVICE_PICPAK_URLS,
@@ -402,54 +519,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
         schema=vol.Schema(
             {
                 vol.Optional(ATTR_ROOM): cv.string,
-                vol.Optional(ATTR_BED): vol.All(vol.Coerce(int), vol.Range(min=1)),
+                vol.Optional(ATTR_BED): vol.All(vol.Coerce(int), vol.Range(min=1, max=2)),
             }
         ),
         supports_response=SupportsResponse.OPTIONAL,
     )
 
-    # Recharger si les options changent
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    picpak.async_start()
-    return True
-
-
-def _picpak_settings(entry: ConfigEntry) -> PicPakSettings:
-    """Réglages des cadres PicPak depuis les options."""
-    opts = entry.options
-    return PicPakSettings(
-        interval_min=int(opts.get(CONF_PICPAK_INTERVAL, DEFAULT_PICPAK_INTERVAL)),
-        photos=int(opts.get(CONF_PICPAK_PHOTOS, DEFAULT_PICPAK_PHOTOS)),
-        quiet=parse_quiet(opts.get(CONF_PICPAK_QUIET, DEFAULT_PICPAK_QUIET)),
-        logo_path=str(opts.get(CONF_PICPAK_LOGO, DEFAULT_PICPAK_LOGO) or ""),
-        logo_path_2=str(opts.get(CONF_PICPAK_LOGO_2, DEFAULT_PICPAK_LOGO_2) or ""),
-        mode=str(opts.get(CONF_PICPAK_MODE, DEFAULT_PICPAK_MODE) or DEFAULT_PICPAK_MODE),
-        title=str(opts.get(CONF_PICPAK_TITLE, DEFAULT_PICPAK_TITLE) or ""),
-        subtitle=str(opts.get(CONF_PICPAK_SUBTITLE, DEFAULT_PICPAK_SUBTITLE) or ""),
-        base_url=str(opts.get(CONF_PICPAK_BASE_URL, DEFAULT_PICPAK_BASE_URL) or ""),
-        arrival_hour=int(
-            opts.get(CONF_PICPAK_ARRIVAL_HOUR, DEFAULT_PICPAK_ARRIVAL_HOUR)
-        ),
-    )
-
 
 def _async_cleanup_stale_devices(
-    hass: HomeAssistant, entry: ImmichConfigEntry, room_ids: set[str]
+    hass: HomeAssistant, entry: ImmichConfigEntry, runtime: ImmichRuntimeData
 ) -> None:
-    """Supprime les appareils des chambres retirées de la configuration."""
+    """Retire les appareils des chambres et cadres qui n'existent plus."""
     registry = dr.async_get(hass)
-    valid = {(DOMAIN, f"{entry.entry_id}_{room_id}") for room_id in room_ids}
+    valid = {(DOMAIN, f"{entry.entry_id}_{room_id}") for room_id in runtime.rooms}
+    for key in runtime.picpak.frames:
+        room_id, slot = key.rsplit("/", 1)
+        valid.add((DOMAIN, f"{entry.entry_id}_{room_id}_picpak_{slot}"))
     for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
         if not (device.identifiers & valid):
-            registry.async_update_device(
-                device.id, remove_config_entry_id=entry.entry_id
-            )
+            registry.async_update_device(device.id, remove_config_entry_id=entry.entry_id)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Recharge l'entrée quand les options changent."""
+    """Recharge l'entrée quand les options ou les chambres changent."""
     await hass.config_entries.async_reload(entry.entry_id)
 
 
@@ -467,10 +559,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> b
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok and entry.runtime_data.picpak is not None:
-        await entry.runtime_data.picpak.async_unload()
     if unload_ok:
-        # Retire les éléments de Réparations / notifications de cette entrée.
+        await entry.runtime_data.picpak.async_unload()
         entry.runtime_data.reporter.async_clear_all()
         hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
     return unload_ok
+

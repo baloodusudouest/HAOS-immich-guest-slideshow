@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connexion à Immich",
-        "description": "Saisissez l'URL de votre serveur Immich et votre clé API. La clé est stockée de façon sécurisée par Home Assistant et n'est jamais écrite dans le code.",
+        "description": "Saisissez l'URL de votre serveur Immich et votre clé API (permissions de lecture des personnes, photos et visages ; albums si vous utilisez la synchronisation). Ajoutez ensuite vos chambres avec « Ajouter une chambre ».",
         "data": {
           "url": "URL Immich",
           "api_key": "Clé API"
@@ -19,62 +19,97 @@
       "already_configured": "Ce serveur Immich est déjà configuré"
     }
   },
+  "config_subentries": {
+    "room": {
+      "entry_type": "Chambre",
+      "initiate_flow": {
+        "user": "Ajouter une chambre"
+      },
+      "step": {
+        "user": {
+          "title": "Nouvelle chambre",
+          "data": {
+            "name": "Nom de la chambre",
+            "calendar": "Calendrier des séjours",
+            "helpers": "Invités (1 ou 2 helpers input_text)",
+            "door_frame": "Cadre PicPak sur la porte",
+            "room_frames": "Cadres PicPak dans la chambre"
+          },
+          "data_description": {
+            "calendar": "Les séjours (un événement par séjour ou par invité) : début des photos à l'heure d'arrivée, fin le lendemain du dernier jour à 00:01. Sans calendrier, l'invité est montré dès qu'il est renseigné.",
+            "helpers": "L'ordre compte : le cadre n°1 montre l'invité du 1er helper, le n°2 celui du 2e.",
+            "door_frame": "Hors séjour : logo et nom de la chambre. Pendant le séjour : visages des invités, « Prénom, bienvenue dans la chambre… » et dates.",
+            "room_frames": "0, 1 ou 2. Pendant le séjour : un cadre par invité ; un invité seul : ses photos sur les deux cadres, sans doublon."
+          }
+        },
+        "reconfigure": {
+          "title": "Réglages de la chambre",
+          "description": "L'identifiant de la chambre ne change pas : entités et URL des cadres sont conservées.",
+          "data": {
+            "name": "Nom de la chambre",
+            "calendar": "Calendrier des séjours",
+            "helpers": "Invités (1 ou 2 helpers input_text)",
+            "door_frame": "Cadre PicPak sur la porte",
+            "room_frames": "Cadres PicPak dans la chambre"
+          },
+          "data_description": {
+            "calendar": "Les séjours (un événement par séjour ou par invité) : début des photos à l'heure d'arrivée, fin le lendemain du dernier jour à 00:01. Sans calendrier, l'invité est montré dès qu'il est renseigné.",
+            "helpers": "L'ordre compte : le cadre n°1 montre l'invité du 1er helper, le n°2 celui du 2e.",
+            "door_frame": "Hors séjour : logo et nom de la chambre. Pendant le séjour : visages des invités, « Prénom, bienvenue dans la chambre… » et dates.",
+            "room_frames": "0, 1 ou 2. Pendant le séjour : un cadre par invité ; un invité seul : ses photos sur les deux cadres, sans doublon."
+          }
+        }
+      },
+      "error": {
+        "invalid_name": "Nom de chambre invalide",
+        "room_exists": "Une chambre portant ce nom existe déjà",
+        "no_helpers": "Sélectionnez au moins un helper input_text",
+        "too_many_helpers": "Deux invités au maximum par chambre"
+      },
+      "abort": {
+        "reconfigure_successful": "Chambre mise à jour"
+      }
+    }
+  },
   "options": {
     "step": {
       "init": {
         "title": "Immich Guest Slideshow",
         "menu_options": {
           "general": "Réglages généraux",
-          "picpak": "Cadres PicPak",
-          "add_room": "Ajouter une chambre",
-          "remove_room": "Supprimer des chambres"
+          "picpak": "Cadres PicPak"
         }
       },
       "general": {
-        "title": "Réglages du diaporama",
+        "title": "Réglages généraux",
+        "description": "Les chambres se règlent chacune sur sa ligne (Configurer).",
         "data": {
-          "interval": "Secondes entre deux images",
-          "cache_size": "Nombre max de photos en cache par chambre",
-          "rebuild_hours": "Rafraîchissement du cache en heures (0 = désactivé)",
-          "permanent_persons": "Personnes permanentes (noms exacts ou ID de personne Immich, séparés par des virgules)",
+          "permanent_persons": "Propriétaires (noms exacts ou ID Immich, séparés par des virgules)",
+          "interval": "Dashboards : secondes entre deux photos",
+          "cache_size": "Dashboards : nombre de photos par chambre",
+          "arrival_hour": "Heure de début du séjour le jour d'arrivée",
+          "rebuild_hours": "Relecture d'Immich toutes les … heures (0 = jamais)",
           "min_photos": "Photos minimum par invité (en dessous, une réparation est créée)"
         }
       },
       "picpak": {
         "title": "Cadres e-ink PicPak",
-        "description": "Un cadre par lit : le cadre n° 1 suit le premier helper de la chambre, le n° 2 le second. Les URL à saisir dans chaque cadre s'obtiennent avec le service « PicPak : URL des cadres ».",
+        "description": "Le nombre de cadres et le cadre de porte se règlent dans chaque chambre. Pendant un séjour, un cadre reçoit une photo par intervalle, autant que d'heures de séjour (pause nocturne exclue). Les URL des cadres s'obtiennent avec l'action « PicPak : URL des cadres ».",
         "data": {
           "picpak_interval": "Minutes entre deux photos",
-          "picpak_photos": "Photos par cadre et par séjour",
-          "picpak_arrival_hour": "Heure de début des photos le jour d'arrivée (selon le calendrier de la chambre)",
-          "picpak_quiet": "Pause nocturne, ex. 23:00-07:00 (vide = aucune)",
-          "picpak_logo": "Logo du cadre n°1 quand la chambre est libre (chemin d'un PNG)",
-          "picpak_logo_2": "Logo du cadre n°2 (chemin d'un PNG ; vide = même logo que le n°1)",
+          "picpak_quiet": "Pause nocturne, ex. 01:00-07:00 (vide = aucune)",
+          "picpak_photos": "Photos par cadre pour une chambre sans calendrier",
+          "picpak_logo": "Logo (chemin d'un PNG, idéalement 400×300 or sur noir)",
+          "picpak_logo_2": "Logo du cadre n°2 (facultatif ; vide = même logo)",
           "picpak_title": "Titre du logo texte, si le fichier de logo est absent",
           "picpak_subtitle": "Sous-titre du logo texte",
           "picpak_base_url": "URL locale de Home Assistant vue par les cadres (vide = automatique)",
-          "picpak_reset_button": "Bouton de réinitialisation de la maison (fin des séjours en cours, logo sur les cadres)"
-        }
-      },
-      "add_room": {
-        "title": "Ajouter une chambre",
-        "data": {
-          "name": "Nom de la chambre",
-          "helpers": "Helpers invités (input_text)"
-        }
-      },
-      "remove_room": {
-        "title": "Supprimer des chambres",
-        "data": {
-          "rooms": "Chambres à supprimer"
+          "picpak_reset_button": "Bouton de réinitialisation de la maison (fin des séjours en cours)"
         }
       }
     },
     "error": {
-      "invalid_name": "Nom de chambre invalide",
-      "room_exists": "Une chambre portant ce nom existe déjà",
-      "no_helpers": "Sélectionnez au moins un helper input_text",
-      "invalid_quiet": "Format attendu : HH:MM-HH:MM, ex. 23:00-07:00",
+      "invalid_quiet": "Format attendu : HH:MM-HH:MM, ex. 01:00-07:00",
       "invalid_base_url": "L'URL doit commencer par http:// ou https://"
     }
   },
@@ -93,15 +128,6 @@
     "image": {
       "picpak_screen": {
         "name": "Écran"
-      }
-    },
-    "select": {
-      "picpak_mode": {
-        "name": "Affichage pendant le séjour",
-        "state": {
-          "photos": "Photos des invités",
-          "visages": "Visages des invités (chambre, noms, dates)"
-        }
       }
     }
   },
@@ -146,7 +172,7 @@
     },
     "helper_missing": {
       "title": "Helper introuvable : {name}",
-      "description": "Le helper « {name} » configuré pour la chambre {rooms} n'existe pas : cette chambre ne voit aucun invité. Créez-le, ou corrigez les helpers de la chambre : Paramètres → Appareils et services → Immich Guest Slideshow → Configurer (supprimer puis recréer la chambre)."
+      "description": "Le helper « {name} » configuré pour la chambre {rooms} n'existe pas : cette chambre ne voit aucun invité. Créez-le, ou corrigez la chambre : Paramètres → Appareils et services → Immich Guest Slideshow → ligne de la chambre → Configurer."
     }
   }
 }
