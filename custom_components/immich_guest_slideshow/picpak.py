@@ -58,6 +58,7 @@ from .api import ImmichApiClient, ImmichApiError
 from .const import (
     DOMAIN,
     PICPAK_CALENDAR,
+    PICPAK_MODE_FACES,
     PICPAK_URL_MAX,
     PICPAK_URL_PATH,
     SIGNAL_PICPAK_UPDATE,
@@ -81,6 +82,7 @@ MAX_WAKE_S = 12 * 3600
 MAX_ASSET_TRIES = 3
 
 LOGO = "__logo__"
+FACES = "__visages__"
 
 _QUIET_RE = re.compile(r"^\s*(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\s*$")
 
@@ -280,6 +282,7 @@ class PicPakSettings:
     base_url: str
     arrival_hour: int = 9
     logo_path_2: str = ""
+    mode: str = "photos"  # pendant le séjour : « photos » ou « visages »
 
     def logo_for_bed(self, bed: int) -> str:
         """Logo du cadre n° ``bed`` : le 2e logo pour les cadres pairs, s'il
@@ -373,6 +376,9 @@ class PicPakManager:
         self._logo_sig: tuple | None = None
         self._logos: dict[str, bytes] = {}  # logo légendé par cadre
         self._captions: dict[str, str] = {}  # dernière légende par cadre
+        # Carte « visages » par chambre : (signature, tampon).
+        self._faces_cards: dict[str, tuple[tuple, bytes]] = {}
+        self._person_faces: dict[str, bytes | None] = {}  # vignettes Immich
 
     # ------------------------------------------------------------------ #
     # Cycle de vie
@@ -411,7 +417,11 @@ class PicPakManager:
             for room_id in list(self._engines):
                 await self.async_ensure_room(room_id)
             for key, frame in self.frames.items():
-                if frame.shown and frame.shown != LOGO:
+                if frame.shown == FACES and key not in self._last_body:
+                    room_id = key.rsplit("/", 1)[0]
+                    stay = await self.async_stay(room_id)
+                    self._set_body(key, await self._async_faces_card(room_id, stay))
+                elif frame.shown and frame.shown not in (LOGO, FACES):
                     body = await self._async_render_asset(frame.shown, frame.person_id)
                     if body is not None and key not in self._last_body:
                         self._set_body(key, body)
@@ -580,6 +590,7 @@ class PicPakManager:
     def async_room_changed(self, room_id: str) -> None:
         """Un helper de la chambre a changé : nouvelle sélection en arrière-plan."""
         self._stays.pop(room_id, None)  # la réservation a pu changer aussi
+        self._faces_cards.pop(room_id, None)
         if room_id in self._closed_rooms:
             self._closed_rooms.discard(room_id)
             self._schedule_save()
@@ -662,6 +673,40 @@ class PicPakManager:
                 caption,
             )
         return self._logos[cache_key]
+
+    async def _async_person_face(self, person_id: str | None) -> bytes | None:
+        """Vignette Immich d'une personne (mise en cache), ``None`` si absente."""
+        if not person_id:
+            return None
+        if person_id not in self._person_faces:
+            try:
+                self._person_faces[person_id] = await self._api.async_get_person_thumbnail(
+                    person_id
+                )
+            except ImmichApiError as err:
+                _LOGGER.debug("PicPak : vignette de %s indisponible: %s", person_id, err)
+                return None  # nouvel essai au prochain réveil
+        return self._person_faces[person_id]
+
+    async def _async_faces_card(self, room_id: str, stay: StayStatus) -> bytes:
+        """Carte des invités de la chambre (identique sur ses cadres)."""
+        engine = self._engines[room_id]
+        guests: list[tuple[str, str | None]] = []
+        for guest in dict.fromkeys(g for g in engine.get_guests_by_bed() if g):
+            pid = await engine.async_person_id(guest)
+            guests.append((engine.display_name(guest) or guest, pid))
+        dates = format_stay(*stay.days) if stay.days else ""
+        signature = (tuple(guests), dates, engine.room_name)
+        cached = self._faces_cards.get(room_id)
+        if cached and cached[0] == signature:
+            return cached[1]
+        faces = [(name, await self._async_person_face(pid)) for name, pid in guests]
+        body = await self.hass.async_add_executor_job(
+            picpak_render.render_faces, engine.room_name, faces, dates
+        )
+        if all(face is not None for _, face in faces):
+            self._faces_cards[room_id] = (signature, body)
+        return body
 
     async def _async_render_asset(
         self, asset_id: str, person_id: str | None
@@ -747,7 +792,13 @@ class PicPakManager:
         stay = await self.async_stay(room_id, now)
         frame.in_stay = stay.active if stay.restricted and frame.assets else None
 
-        if not frame.assets or not stay.active:
+        faces_mode = self.settings.mode == PICPAK_MODE_FACES
+        if faces_mode and stay.active and frame.guest:
+            # Mode « visages » : carte des invités de la chambre pendant le séjour.
+            body = await self._async_faces_card(room_id, stay)
+            frame.shown = FACES
+            frame.in_stay = stay.active if stay.restricted else None
+        elif not frame.assets or not stay.active:
             # Chambre libre, ou séjour pas encore commencé / terminé : le logo,
             # légendé avec le prochain séjour s'il y en a un.
             body = await self._async_logo(key, self.logo_caption(key, stay))
@@ -895,10 +946,21 @@ class PicPakManager:
                 )
             return self._preview_png[key]
 
+        room_id = key.rsplit("/", 1)[0]
         asset_id = self._upcoming_asset(frame)
-        cached = self._stays.get(key.rsplit("/", 1)[0])
+        cached = self._stays.get(room_id)
         if cached is not None and not cached[0].active:
             asset_id = None  # hors séjour : le cadre affichera le logo
+        elif (
+            self.settings.mode == PICPAK_MODE_FACES
+            and frame.guest
+            and cached is not None
+        ):
+            # Mode « visages » pendant le séjour : la carte des invités.
+            body = await self._async_faces_card(room_id, cached[0])
+            return await self.hass.async_add_executor_job(
+                picpak_render.preview_png, body
+            )
         source = asset_id or f"{LOGO}{key}"
         cache_key = f"upcoming:{source}"
         if cache_key in self._preview_png:

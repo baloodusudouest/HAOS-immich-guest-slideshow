@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.10.0 — 2026-10-21
+
+- Cadres PicPak : nouveau **mode « visages »** (Options → Cadres PicPak →
+  « Pendant le séjour, afficher »). Pendant le séjour, les cadres de la
+  chambre affichent une carte « médaillon » au lieu des photos : nom de la
+  chambre, visage du ou des invités (vignette Immich de la personne ; centré
+  pour un invité seul, côte à côte avec les prénoms pour deux), nom et dates
+  du séjour. Même carte sur les deux cadres, redessinée seulement quand les
+  invités ou les dates changent (pas de rafraîchissement d'écran inutile).
+  Sans vignette, les initiales de l'invité. Hors séjour : le logo, inchangé.
+- Attribut `affichage` des entités PicPak : nouvelle valeur `visages`.
+
 ## 1.9.0 — 2026-10-21
 
 - Diaporama des chambres : nouvel attribut **`object_position`** sur

@@ -324,6 +324,12 @@ class ImmichApiClient:
         data = await self._request("GET", "/api/faces", params={"id": asset_id})
         return [f for f in (data or []) if isinstance(f, dict)]
 
+    async def async_get_person_thumbnail(self, person_id: str) -> bytes:
+        """Vignette d'une personne (photo de couverture, recadrée sur le visage)."""
+        return await self._request(
+            "GET", f"/api/people/{person_id}/thumbnail", raw=True
+        )
+
     async def async_get_thumbnail(
         self, asset_id: str, *, size: str = "preview"
     ) -> bytes:

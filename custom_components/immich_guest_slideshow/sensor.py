@@ -151,9 +151,12 @@ class PicPakBatterySensor(_PicPakSensor):
             "invite": frame.guest_name,
             "photo": (frame.index + 1) if count and frame.index >= 0 else None,
             "photos": count,
-            "asset_id": frame.shown if frame.shown != "__logo__" else None,
+            "asset_id": (
+                frame.shown if frame.shown not in ("__logo__", "__visages__") else None
+            ),
             "affichage": (
-                "logo" if not count
+                "visages" if frame.shown == "__visages__"
+                else "logo" if not count
                 else "logo (hors séjour)" if frame.in_stay is False
                 else "photos"
             ),
