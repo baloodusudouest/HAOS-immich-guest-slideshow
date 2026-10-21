@@ -314,10 +314,10 @@ def _wrap(draw: ImageDraw.ImageDraw, text: str, font, max_w: int) -> list[str]:
 def _wordmark(title: str, subtitle: str = "") -> Image.Image:
     """Logo typographique, quand aucun fichier de logo n'est fourni.
 
-    Titre en noir, filet jaune, sous-titre en noir, sur fond blanc : les
-    seules couleurs qui restent nettes sans tramage sur la dalle.
+    Titre or (jaune de la dalle), filet or, sous-titre blanc, sur fond noir :
+    aplats nets sans tramage, aux couleurs de la maison.
     """
-    img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[WHITE])
+    img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[BLACK])
     draw = ImageDraw.Draw(img)
     title = title.strip() or "Bienvenue"
     max_w = FRAME_W - 40
@@ -340,18 +340,18 @@ def _wordmark(title: str, subtitle: str = "") -> Image.Image:
         total += sum(sub_h) + 6 * (len(sub_lines) - 1)
     y = (FRAME_H - total) / 2
 
-    def centered(text: str, fnt, top: float) -> float:
+    def centered(text: str, fnt, top: float, fill) -> float:
         box = draw.textbbox((0, 0), text, font=fnt)
         tw = box[2] - box[0]
-        draw.text(((FRAME_W - tw) / 2 - box[0], top - box[1]), text, font=fnt, fill=PALETTE[BLACK])
+        draw.text(((FRAME_W - tw) / 2 - box[0], top - box[1]), text, font=fnt, fill=fill)
         return top + (box[3] - box[1])
 
     for i, ln in enumerate(lines):
-        y = centered(ln, font, y) + (gap if i < len(lines) - 1 else 0)
+        y = centered(ln, font, y, PALETTE[YELLOW]) + (gap if i < len(lines) - 1 else 0)
     draw.rectangle((110, y + 16, 290, y + 21), fill=PALETTE[YELLOW])
     y += 40
     for ln in sub_lines:
-        y = centered(ln, sub_font, y) + 6
+        y = centered(ln, sub_font, y, PALETTE[WHITE]) + 6
     return img
 
 
@@ -361,18 +361,18 @@ CAPTION_BAND = 30  # hauteur de la légende en bas du logo
 def _add_caption(img: Image.Image, caption: str) -> Image.Image:
     """Réduit le logo pour libérer une bande en bas et y écrit ``caption``.
 
-    Une ou deux lignes (séparées par « \n ») : la 1re en gras, la 2e plus
-    petite. Le logo garde ses proportions et la couleur de son fond (prise
+    Une à trois lignes (séparées par « \n ») : la 1re en gras, les suivantes
+    plus petites. Le logo garde ses proportions et la couleur de son fond (prise
     dans le coin) ; la légende est en jaune sur fond sombre, en noir sur fond
     clair.
     """
-    lines = [ln.strip() for ln in caption.split("\n") if ln.strip()][:2]
+    lines = [ln.strip() for ln in caption.split("\n") if ln.strip()][:3]
     if not lines:
         return img
     bg = img.getpixel((0, 0))
     luma = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
     ink = PALETTE[YELLOW] if luma < 128 else PALETTE[BLACK]
-    band = CAPTION_BAND if len(lines) == 1 else CAPTION_BAND + 20
+    band = CAPTION_BAND + 20 * (len(lines) - 1)
     area = (FRAME_W, FRAME_H - band)
     scale = min(area[0] / img.width, area[1] / img.height)
     small = img.resize(
@@ -392,8 +392,7 @@ def _add_caption(img: Image.Image, caption: str) -> Image.Image:
         return font, box
 
     fonts = [fit(lines[0], (20, 18, 16, 14, 12), True)]
-    if len(lines) > 1:
-        fonts.append(fit(lines[1], (16, 14, 12), False))
+    fonts.extend(fit(ln, (16, 14, 12), False) for ln in lines[1:])
     gap = 4
     heights = [b[3] - b[1] for _, b in fonts]
     y = area[1] + (band - sum(heights) - gap * (len(lines) - 1)) / 2
@@ -414,18 +413,19 @@ def render_logo(
 
     ``path`` : image du logo (PNG ; le SVG n'est pas lisible). Une image de
     exactement 400×300 est affichée pleine page, telle quelle ; sinon elle est
-    centrée sur fond blanc sans être déformée ni rognée. Sans fichier lisible,
+    centrée sur fond noir sans être déformée ni rognée. Sans fichier lisible,
     un logo typographique est dessiné avec ``title`` et ``subtitle``.
 
-    ``caption`` : légende écrite tout en bas (ex. « Chambre d'ami invité
-    N°1 ») ; le logo est alors réduit pour lui laisser la place.
+    ``caption`` : légende écrite tout en bas, une à trois lignes (nom de la
+    chambre ; noms des invités ; dates) ; le logo est réduit pour lui laisser
+    la place. Or sur fond sombre, noir sur fond clair.
     """
     img: Image.Image | None = None
     if path and os.path.isfile(path):
         try:
             with Image.open(path) as src:
                 logo = ImageOps.exif_transpose(src).convert("RGBA")
-            img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[WHITE])
+            img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[BLACK])
             if logo.size == (FRAME_W, FRAME_H):
                 # Image déjà composée pour la dalle : pleine page, telle quelle.
                 img.paste(logo, (0, 0), logo)
@@ -447,7 +447,7 @@ def render_logo(
 
 
 # --------------------------------------------------------------------------- #
-# Mode « visages » : carte des invités pendant le séjour
+# Cadre de la porte : visages des invités pendant le séjour
 # --------------------------------------------------------------------------- #
 def _face_disc(face: bytes | None, name: str, size: int) -> Image.Image:
     """Visage carré (vignette Immich) ou, à défaut, initiales sur fond noir."""
@@ -474,51 +474,80 @@ def _face_disc(face: bytes | None, name: str, size: int) -> Image.Image:
     return img
 
 
-def render_faces(
+def _centered(draw: ImageDraw.ImageDraw, cx: float, top: float, text: str, font, fill) -> float:
+    """Écrit ``text`` centré sur ``cx`` ; renvoie le bas du texte."""
+    box = draw.textbbox((0, 0), text, font=font)
+    draw.text((cx - (box[2] - box[0]) / 2 - box[0], top - box[1]), text, font=font, fill=fill)
+    return top + (box[3] - box[1])
+
+
+def _fit(draw: ImageDraw.ImageDraw, text: str, sizes: tuple[int, ...], bold: bool, max_w: int):
+    """Plus grande police de ``sizes`` dans laquelle ``text`` tient en ``max_w``."""
+    font = _font(sizes[-1], bold=bold)
+    for size in sizes:
+        font = _font(size, bold=bold)
+        box = draw.textbbox((0, 0), text, font=font)
+        if box[2] - box[0] <= max_w:
+            break
+    return font
+
+
+def welcome_line(room: str) -> str:
+    """« bienvenue dans la chambre d'ami » / « bienvenue dans la chambre Stitch »."""
+    room = room.strip()
+    if room.lower().startswith("chambre"):
+        return f"bienvenue dans la {room[0].lower()}{room[1:]}"
+    return f"bienvenue dans la chambre {room}"
+
+
+def render_door(
     room: str, guests: Sequence[tuple[str, bytes | None]], dates: str = ""
 ) -> bytes:
-    """Carte « médaillon » : visage(s) des invités, chambre, nom(s) et dates.
+    """Cadre de la porte pendant le séjour.
 
-    Fond noir ; en haut le nom de la chambre en capitales or ; au centre un ou
-    deux visages dans un cercle or (un seul invité : centré) ; dessous le nom
-    complet (un invité) ou les prénoms (deux invités) ; en bas les dates.
+    Fond noir ; en haut le visage de chaque invité dans un médaillon or (un
+    seul invité : centré ; deux : côte à côte) ; dessous « Corinne et Régis, »
+    en blanc, « bienvenue dans la chambre d'ami » en or, puis les dates.
+    ``guests`` : (prénom, vignette Immich ou ``None`` -> initiales).
     """
     img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[BLACK])
     draw = ImageDraw.Draw(img)
-
-    def centered(cx: float, top: float, text: str, font, fill) -> None:
-        box = draw.textbbox((0, 0), text, font=font)
-        draw.text((cx - (box[2] - box[0]) / 2 - box[0], top - box[1]), text, font=font, fill=fill)
-
-    def fit(text: str, sizes: tuple[int, ...], bold: bool, max_w: int):
-        for size in sizes:
-            font = _font(size, bold=bold)
-            box = draw.textbbox((0, 0), text, font=font)
-            if box[2] - box[0] <= max_w:
-                return font
-        return font
-
-    title = room.upper()
-    centered(FRAME_W / 2, 10, title, fit(title, (15, 14, 13, 12), True, FRAME_W - 40), PALETTE[YELLOW])
-    draw.line((120, 32, 280, 32), fill=PALETTE[YELLOW], width=1)
-
     guests = list(guests)[:2]
     two = len(guests) == 2
-    size = 128 if two else 150
+    size = 132 if two else 150
     centers = [FRAME_W / 2 - 80, FRAME_W / 2 + 80] if two else [FRAME_W / 2]
+    max_w = FRAME_W - 24
+
+    # Textes et polices, puis bloc entier centré verticalement.
+    names = " et ".join(n for n, _ in guests if n)
+    lines: list[tuple[str, object, tuple[int, int, int], int]] = []
+    if names:
+        line = f"{names},"
+        lines.append((line, _fit(draw, line, (24, 22, 20, 18, 16), True, max_w), PALETTE[WHITE], 8))
+    welcome = welcome_line(room)
+    lines.append((welcome, _fit(draw, welcome, (20, 18, 16, 14), False, max_w), PALETTE[YELLOW], 10))
+    if dates:
+        lines.append((dates, _fit(draw, dates, (17, 15, 13), False, max_w), PALETTE[WHITE], 0))
+
+    def height(text: str, font) -> int:
+        box = draw.textbbox((0, 0), text, font=font)
+        return box[3] - box[1]
+
+    gap = 16
+    total = (size if guests else 0) + gap + sum(height(t, f) + g for t, f, _, g in lines)
+    top = max(8, int((FRAME_H - total) / 2))
+
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
-    top = 44
     for (name, face), cx in zip(guests, centers, strict=True):
         x0 = int(cx - size / 2)
         img.paste(_face_disc(face, name, size), (x0, top), mask)
-        draw.ellipse((x0 - 3, top - 3, x0 + size + 2, top + size + 2), outline=PALETTE[YELLOW], width=3)
-        if two:
-            label = name.split()[0] if name.split() else name  # prénoms, homogènes
-            centered(cx, top + size + 10, label, fit(label, (17, 15, 13), True, 150), PALETTE[WHITE])
-    if not two and guests:
-        name = guests[0][0]
-        centered(FRAME_W / 2, 208, name, fit(name, (22, 20, 18, 16), True, FRAME_W - 20), PALETTE[WHITE])
-    if dates:
-        centered(FRAME_W / 2, 262 if two else 268, dates, fit(dates, (16, 14, 12), False, FRAME_W - 20), PALETTE[YELLOW])
+        draw.ellipse(
+            (x0 - 3, top - 3, x0 + size + 2, top + size + 2),
+            outline=PALETTE[YELLOW],
+            width=3,
+        )
+    y = top + (size if guests else 0) + gap
+    for text, font, fill, after in lines:
+        y = _centered(draw, FRAME_W / 2, y, text, font, fill) + after
     return pack(quantize(img, dither=True))

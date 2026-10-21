@@ -77,7 +77,7 @@ link_person:
       name: ID de la personne Immich
       description: >-
         UUID de la personne, ou URL de sa fiche dans Immich
-        (http://…/people/<id>).
+        (http://…/people/…).
       required: true
       example: 1238c4da-3b98-41b9-b795-81d51e95a6d5
       selector:
@@ -100,9 +100,10 @@ unlink_person:
 picpak_urls:
   name: "PicPak : URL des cadres"
   description: >-
-    Renvoie, pour chaque cadre e-ink PicPak (un par lit), l'URL à enregistrer
-    dans le cadre avec la commande SETURL de la console du firmware. L'URL
-    contient le jeton d'accès des cadres : ne la partagez pas.
+    Renvoie, pour chaque cadre e-ink PicPak (cadres de chaque chambre et de
+    sa porte), l'URL à enregistrer dans le cadre avec la commande SETURL de la
+    console du firmware. L'URL contient le jeton d'accès des cadres : ne la
+    partagez pas.
   fields:
     base_url:
       name: URL de base
@@ -118,9 +119,10 @@ picpak_urls:
 picpak_next:
   name: "PicPak : photo suivante"
   description: >-
-    Fait passer les cadres à la photo suivante. Un cadre ne peut pas être
-    réveillé à distance : le changement a lieu à son prochain réveil, ou tout
-    de suite si l'on appuie sur son bouton. Sans paramètre, tous les cadres.
+    Fait passer les cadres photo (dans les chambres) à la photo suivante. Un
+    cadre ne peut pas être réveillé à distance : le changement a lieu à son
+    prochain réveil, ou tout de suite si l'on appuie sur son bouton. Sans
+    paramètre, tous les cadres.
   fields:
     room:
       name: Chambre
@@ -130,12 +132,12 @@ picpak_next:
       selector:
         text:
     bed:
-      name: Lit
-      description: Numéro du cadre dans la chambre (1, 2…). Optionnel.
+      name: Cadre
+      description: Numéro du cadre dans la chambre (1 ou 2). Optionnel.
       required: false
       example: 1
       selector:
         number:
           min: 1
-          max: 8
+          max: 2
           mode: box

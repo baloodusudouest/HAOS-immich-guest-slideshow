@@ -6,7 +6,6 @@ une notification apparaissent (ou non) selon ce qu'Immich répond.
 """
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import patch
 
 from homeassistant.components import persistent_notification
@@ -15,71 +14,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import issue_registry as ir
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.immich_guest_slideshow.const import (
-    CONF_API_KEY,
-    CONF_PERMANENT_PERSONS,
-    CONF_ROOMS,
-    CONF_URL,
-    DOMAIN,
-    KEY_HELPERS,
-    KEY_NAME,
-)
+from custom_components.immich_guest_slideshow.const import DOMAIN
 
-HELPER = "input_text.guest_chambre_test"
-PEOPLE = {
-    "Propriétaire 1": "aaaaaaaa-0000-4000-8000-000000000001",
-    "Propriétaire 2": "aaaaaaaa-0000-4000-8000-000000000002",
-    "Alexia": "1238c4da-3b98-41b9-b795-81d51e95a6d5",
-}
-
-
-class FakeImmich:
-    """Client Immich factice (remplace ImmichApiClient)."""
-
-    photos: dict[frozenset[str], int] = {}
-
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        pass
-
-    async def async_validate_connection(self) -> dict[str, Any]:
-        return {"version": "3.0.1"}
-
-    async def async_get_person(self, person_id: str) -> dict[str, Any] | None:
-        for name, pid in PEOPLE.items():
-            if pid == person_id:
-                return {"id": pid, "name": name}
-        return None
-
-    async def async_find_person(self, name: str) -> dict[str, Any] | None:
-        pid = PEOPLE.get(name)
-        return {"id": pid, "name": name} if pid else None
-
-    async def async_search_assets(
-        self, person_ids: list[str], **kwargs: Any
-    ) -> list[dict[str, Any]]:
-        count = self.photos.get(frozenset(person_ids), 0)
-        key = "-".join(sorted(person_ids))
-        return [{"id": f"{key}#{i}"} for i in range(count)]
-
-    async def async_get_thumbnail(self, *args: Any, **kwargs: Any) -> bytes:
-        return b""
-
-    async def async_get_faces(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
-        return []
+from .common import HELPER_1 as HELPER
+from .common import PEOPLE, FakeImmich, make_entry, room_subentry
 
 
 def _entry() -> MockConfigEntry:
-    return MockConfigEntry(
-        domain=DOMAIN,
-        data={CONF_URL: "http://immich.test:2283", CONF_API_KEY: "k"},
-        options={
-            CONF_PERMANENT_PERSONS: ["Propriétaire 1", "Propriétaire 2"],
-            CONF_ROOMS: {
-                "chambre_test": {KEY_NAME: "Chambre test", KEY_HELPERS: [HELPER]},
-            },
-        },
-        unique_id="http://immich.test:2283",
-    )
+    return make_entry([room_subentry(helpers=[HELPER], frames=0)])
 
 
 def _issues(hass: HomeAssistant) -> list[tuple[str, str]]:
@@ -92,6 +34,7 @@ def _issues(hass: HomeAssistant) -> list[tuple[str, str]]:
 
 
 async def _setup(hass: HomeAssistant, helper_value: str) -> MockConfigEntry:
+    FakeImmich.fail = set()
     hass.states.async_set(HELPER, helper_value)
     entry = _entry()
     entry.add_to_hass(hass)
