@@ -13,7 +13,7 @@ from homeassistant.util import dt as dt_util
 from . import ImmichConfigEntry
 from .const import DOMAIN, MANUFACTURER, SIGNAL_PICPAK_UPDATE
 from .coordinator import RoomCoordinator, RoomData
-from .picpak import LOGO, PicPakManager, frame_device_info
+from .picpak import FACES, LOGO, PicPakManager, frame_device_info
 
 
 async def async_setup_entry(
@@ -150,6 +150,10 @@ class PicPakFrameImage(ImageEntity):
         frame = self._manager.frames[self._key]
         return {
             "invite": frame.guest_name,
-            "asset_id": frame.shown if frame.shown != LOGO else None,
-            "affichage": "logo" if not frame.assets else "photos",
+            "asset_id": frame.shown if frame.shown not in (LOGO, FACES) else None,
+            "affichage": (
+                "visages" if frame.shown == FACES
+                else "logo" if not frame.assets
+                else "photos"
+            ),
         }

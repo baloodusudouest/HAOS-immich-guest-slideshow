@@ -147,6 +147,18 @@ Un réveil qui ne doit rien changer reçoit la même image : le cadre ne
 rafraîchit pas l'écran, ce qui économise la batterie. L'image suivante est
 préparée à l'avance pour répondre en quelques millisecondes.
 
+### Mode « visages »
+
+Options → **Cadres PicPak** → « Pendant le séjour, afficher » : **les visages
+des invités**. Pendant le séjour, les cadres de la chambre affichent alors une
+carte fixe au lieu des photos : nom de la chambre en haut, visage de chaque
+invité dans un médaillon (vignette de la personne dans Immich ; centré s'il
+n'y a qu'un invité, côte à côte avec les prénoms s'ils sont deux), nom
+complet (un invité) et dates du séjour en bas. Les deux cadres montrent la
+même carte ; elle n'est redessinée que si les invités ou les dates changent.
+Sans vignette Immich, les initiales remplacent le visage. Hors séjour, le
+logo s'affiche comme d'habitude.
+
 ### Mise en place
 
 1. Options → **Cadres PicPak** : intervalle, nombre de photos, pause nocturne,
