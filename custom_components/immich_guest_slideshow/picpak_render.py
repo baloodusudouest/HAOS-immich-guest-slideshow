@@ -492,62 +492,126 @@ def _fit(draw: ImageDraw.ImageDraw, text: str, sizes: tuple[int, ...], bold: boo
     return font
 
 
-def welcome_line(room: str) -> str:
-    """« bienvenue dans la chambre d'ami » / « bienvenue dans la chambre Stitch »."""
+def room_line(room: str, prefix: str = "Bienvenue") -> str:
+    """« Bienvenue dans la chambre d'ami », « Bientôt dans la chambre Stitch »."""
     room = room.strip()
     if room.lower().startswith("chambre"):
-        return f"bienvenue dans la {room[0].lower()}{room[1:]}"
-    return f"bienvenue dans la chambre {room}"
+        return f"{prefix} dans la {room[0].lower()}{room[1:]}"
+    return f"{prefix} dans la chambre {room}"
+
+
+def welcome_line(room: str) -> str:
+    """« bienvenue dans la chambre d'ami » (forme en minuscule, v2.0)."""
+    line = room_line(room)
+    return line[0].lower() + line[1:]
+
+
+# Géométrie du losange du logo Petit Lecussan (SVG 512×512, centre 256) :
+# losange extérieur demi-diagonale 150, trait 9, ouvert sur le côté haut-droit
+# où passe la Garonne (courbe bleue, trait 11, doublée d'un filet 3,8) ;
+# losange intérieur demi-diagonale 121,5, trait 2,9 à 50 %.
+_OUTER = 150.0
+_INNER = 121.5
+_RIVER = ((0.0, -150.0), (44.0, -126.0), (75.0, -75.0), (106.0, -24.0), (150.0, 0.0))
+_RIVER_2 = ((8.4, -158.4), (56.0, -138.0), (83.4, -83.4), (118.0, -36.0), (158.4, -8.4))
+
+
+def _quad(p0, p1, p2, steps: int = 24) -> list[tuple[float, float]]:
+    """Points d'une courbe de Bézier quadratique."""
+    pts = []
+    for i in range(steps + 1):
+        t = i / steps
+        u = 1 - t
+        pts.append(
+            (
+                u * u * p0[0] + 2 * u * t * p1[0] + t * t * p2[0],
+                u * u * p0[1] + 2 * u * t * p1[1] + t * t * p2[1],
+            )
+        )
+    return pts
+
+
+def _thick_line(draw: ImageDraw.ImageDraw, pts: list[tuple[float, float]], width: float, fill) -> None:
+    """Polyligne épaisse aux jonctions arrondies."""
+    w = max(1, round(width))
+    draw.line(pts, fill=fill, width=w)
+    if w > 2:
+        r = w / 2
+        for x, y in pts:
+            draw.ellipse((x - r, y - r, x + r, y + r), fill=fill)
+
+
+def _diamond_face(
+    img: Image.Image, cx: float, cy: float, half: float, face: bytes | None, name: str
+) -> None:
+    """Visage dans le losange du logo, à la place du « PL », bordures du logo."""
+    draw = ImageDraw.Draw(img)
+    k = half / _OUTER
+
+    def at(x: float, y: float) -> tuple[float, float]:
+        return (cx + x * k, cy + y * k)
+
+    inner = _INNER * k
+    # Visage découpé dans le losange intérieur.
+    size = int(2 * inner)
+    portrait = _face_disc(face, name, size)
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).polygon(
+        [(size / 2, 0), (size - 1, size / 2), (size / 2, size - 1), (0, size / 2)], fill=255
+    )
+    img.paste(portrait, (int(cx - size / 2), int(cy - size / 2)), mask)
+    # Losange intérieur : filet fin.
+    _thick_line(
+        draw,
+        [at(0, -_INNER), at(_INNER, 0), at(0, _INNER), at(-_INNER, 0), at(0, -_INNER)],
+        max(1.0, 2.9 * k),
+        PALETTE[YELLOW],
+    )
+    # Losange extérieur, ouvert en haut à droite.
+    _thick_line(
+        draw,
+        [at(_OUTER, 0), at(0, _OUTER), at(-_OUTER, 0), at(0, -_OUTER)],
+        9 * k,
+        PALETTE[YELLOW],
+    )
+    # La Garonne (bleue sur le logo : blanche sur la dalle, qui n'a pas de bleu).
+    for curve, width in ((_RIVER, 11 * k), (_RIVER_2, max(1.0, 3.8 * k))):
+        pts = _quad(curve[0], curve[1], curve[2]) + _quad(curve[2], curve[3], curve[4])[1:]
+        _thick_line(draw, [at(x, y) for x, y in pts], width, PALETTE[WHITE])
 
 
 def render_door(
-    room: str, guests: Sequence[tuple[str, bytes | None]], dates: str = ""
+    room: str,
+    guests: Sequence[tuple[str, bytes | None]],
+    dates: str = "",
+    upcoming: bool = False,
 ) -> bytes:
-    """Cadre de la porte pendant le séjour.
+    """Cadre de la porte quand un séjour est programmé ou en cours.
 
-    Fond noir ; en haut le visage de chaque invité dans un médaillon or (un
-    seul invité : centré ; deux : côte à côte) ; dessous « Corinne et Régis, »
-    en blanc, « bienvenue dans la chambre d'ami » en or, puis les dates.
+    Fond noir ; en haut « Bientôt dans la chambre … » (séjour programmé) ou
+    « Bienvenue dans la chambre … » (séjour en cours), en or ; au centre le
+    visage de chaque invité dans le losange du logo Petit Lecussan, à la place
+    du « PL » (un invité : un losange ; deux : deux losanges côte à côte),
+    son prénom dessous ; en bas la date prévue.
     ``guests`` : (prénom, vignette Immich ou ``None`` -> initiales).
     """
     img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[BLACK])
     draw = ImageDraw.Draw(img)
     guests = list(guests)[:2]
     two = len(guests) == 2
-    size = 132 if two else 150
-    centers = [FRAME_W / 2 - 80, FRAME_W / 2 + 80] if two else [FRAME_W / 2]
-    max_w = FRAME_W - 24
+    max_w = FRAME_W - 20
 
-    # Textes et polices, puis bloc entier centré verticalement.
-    names = " et ".join(n for n, _ in guests if n)
-    lines: list[tuple[str, object, tuple[int, int, int], int]] = []
-    if names:
-        line = f"{names},"
-        lines.append((line, _fit(draw, line, (24, 22, 20, 18, 16), True, max_w), PALETTE[WHITE], 8))
-    welcome = welcome_line(room)
-    lines.append((welcome, _fit(draw, welcome, (20, 18, 16, 14), False, max_w), PALETTE[YELLOW], 10))
-    if dates:
-        lines.append((dates, _fit(draw, dates, (17, 15, 13), False, max_w), PALETTE[WHITE], 0))
+    title = room_line(room, "Bientôt" if upcoming else "Bienvenue")
+    _centered(draw, FRAME_W / 2, 10, title, _fit(draw, title, (22, 20, 18, 16, 14), True, max_w), PALETTE[YELLOW])
 
-    def height(text: str, font) -> int:
-        box = draw.textbbox((0, 0), text, font=font)
-        return box[3] - box[1]
-
-    gap = 16
-    total = (size if guests else 0) + gap + sum(height(t, f) + g for t, f, _, g in lines)
-    top = max(8, int((FRAME_H - total) / 2))
-
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+    half = 74 if two else 92
+    cy = 40 + half
+    centers = [FRAME_W / 2 - 96, FRAME_W / 2 + 96] if two else [FRAME_W / 2]
+    name_top = cy + half + 8
     for (name, face), cx in zip(guests, centers, strict=True):
-        x0 = int(cx - size / 2)
-        img.paste(_face_disc(face, name, size), (x0, top), mask)
-        draw.ellipse(
-            (x0 - 3, top - 3, x0 + size + 2, top + size + 2),
-            outline=PALETTE[YELLOW],
-            width=3,
-        )
-    y = top + (size if guests else 0) + gap
-    for text, font, fill, after in lines:
-        y = _centered(draw, FRAME_W / 2, y, text, font, fill) + after
+        _diamond_face(img, cx, cy, half, face, name)
+        if name:
+            _centered(draw, cx, name_top, name, _fit(draw, name, (20, 18, 16, 14), True, 180), PALETTE[WHITE])
+    if dates:
+        _centered(draw, FRAME_W / 2, FRAME_H - 30, dates, _fit(draw, dates, (18, 16, 14, 12), False, max_w), PALETTE[YELLOW])
     return pack(quantize(img, dither=True))

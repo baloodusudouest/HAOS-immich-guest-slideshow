@@ -185,9 +185,9 @@ def test_second_logo_only_for_frame_two() -> None:
     assert s.logo_for("2") == "/a.png"
 
 
-def test_welcome_line() -> None:
-    assert pr.welcome_line("Chambre d'ami") == "bienvenue dans la chambre d'ami"
-    assert pr.welcome_line("Stitch") == "bienvenue dans la chambre Stitch"
+def test_room_line() -> None:
+    assert pr.room_line("Chambre d'ami") == "Bienvenue dans la chambre d'ami"
+    assert pr.room_line("Stitch", "Bientôt") == "Bientôt dans la chambre Stitch"
 
 
 def test_door_card_one_and_two_guests() -> None:
@@ -200,11 +200,15 @@ def test_door_card_one_and_two_guests() -> None:
     img1 = Image.open(io.BytesIO(pr.preview_png(one))).convert("RGB")
     img2 = Image.open(io.BytesIO(pr.preview_png(two))).convert("RGB")
     bg = img1.getpixel((2, 2))
-    # Un invité : visage centré ; deux : côte à côte, espace au milieu.
-    assert img1.getpixel((200, 105)) != bg and img1.getpixel((60, 105)) == bg
-    assert img2.getpixel((120, 105)) != bg  # visage
-    assert {img2.getpixel((280, y)) for y in range(30, 180)} - {bg}  # initiales + cercle
-    assert img2.getpixel((200, 105)) == bg
-    # Texte sous les visages (prénoms, bienvenue, dates).
-    below = {img2.getpixel((x, y)) for x in range(40, 360, 2) for y in range(190, 270, 2)}
+    # Un invité : losange centré ; deux : côte à côte, espace au milieu.
+    assert img1.getpixel((200, 132)) != bg and img1.getpixel((40, 132)) == bg
+    assert img2.getpixel((104, 114)) != bg  # visage
+    assert {img2.getpixel((296, y)) for y in range(40, 190)} - {bg}  # initiales + bordures
+    assert img2.getpixel((200, 114)) == bg
+    # Prénoms et date sous les losanges.
+    below = {img2.getpixel((x, y)) for x in range(40, 360, 2) for y in range(196, 290, 2)}
     assert below - {bg}
+    # « Bientôt » et « Bienvenue » : seul le titre change.
+    soon = pr.render_door("Chambre d'ami", [("Corinne", face)], "ven. 23 → sam. 24 oct.", True)
+    diff = [i for i, (a, b) in enumerate(zip(pr.unpack(one), pr.unpack(soon))) if a != b]
+    assert diff and max(diff) < 40 * 400
