@@ -15,11 +15,45 @@ refresh:
         text:
 
 next:
-  name: Image suivante
+  name: Photo suivante
   description: >-
-    Passe immédiatement à l'image suivante sans attendre la fin de
-    l'intervalle. Sans paramètre, toutes les chambres avancent.
+    Passe immédiatement à la photo suivante du diaporama (le minuteur repart
+    de zéro). Cibler la chambre par l'image de son diaporama (entity_id) ou
+    par son identifiant (room). Sans paramètre, toutes les chambres.
   fields:
+    entity_id:
+      name: Diaporama
+      description: Image du diaporama de la chambre (optionnel).
+      required: false
+      example: image.immich_chambre_ami
+      selector:
+        entity:
+          integration: immich_guest_slideshow
+          domain: image
+    room:
+      name: Chambre
+      description: Identifiant de la chambre (optionnel).
+      required: false
+      example: chambre_stitch
+      selector:
+        text:
+
+previous:
+  name: Photo précédente
+  description: >-
+    Revient à la photo précédente du diaporama (le minuteur repart de zéro).
+    Cibler la chambre par l'image de son diaporama (entity_id) ou par son
+    identifiant (room).
+  fields:
+    entity_id:
+      name: Diaporama
+      description: Image du diaporama de la chambre (optionnel).
+      required: false
+      example: image.immich_chambre_ami
+      selector:
+        entity:
+          integration: immich_guest_slideshow
+          domain: image
     room:
       name: Chambre
       description: Identifiant de la chambre (optionnel).

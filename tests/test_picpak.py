@@ -326,3 +326,32 @@ async def test_dashboard_image_shows_photos_and_planned_dates(
     assert attrs["object_position"] == "50% 30%"
     coordinator = entry.runtime_data.rooms["chambre_test"].coordinator
     assert coordinator.update_interval.total_seconds() == 15
+
+
+async def test_next_and_previous_services_by_entity(hass: HomeAssistant) -> None:
+    """Boutons du diaporama : suivante / précédente, ciblés par l'image."""
+    FakeImmich.reset({ALEXIA_OWNERS: 6})
+    await setup_entry(hass, {HELPER_1: "Alexia"}, _entry(frames=0))
+    entity = "image.immich_chambre_test"
+
+    def shown() -> str:
+        return hass.states.get(entity).attributes["asset_id"]
+
+    assert hass.states.get(entity).attributes["chambre"] == "chambre_test"
+    first = shown()
+    await hass.services.async_call(DOMAIN, "next", {"entity_id": entity}, blocking=True)
+    await hass.async_block_till_done()
+    second = shown()
+    assert second != first
+    await hass.services.async_call(DOMAIN, "previous", {"entity_id": entity}, blocking=True)
+    await hass.async_block_till_done()
+    assert shown() == first
+    await hass.services.async_call(DOMAIN, "next", {"room": "chambre_test"}, blocking=True)
+    await hass.async_block_till_done()
+    assert shown() == second
+
+    import pytest
+    from homeassistant.exceptions import ServiceValidationError
+
+    with pytest.raises(ServiceValidationError, match="chambres : chambre_test"):
+        await hass.services.async_call(DOMAIN, "next", {"room": "chambre_d_ami"}, blocking=True)

@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.2.0 — 2026-10-21
+
+- Diaporama des dashboards : nouvelle action **`previous`** (photo
+  précédente) à côté de `next` ; les deux font changer la photo
+  immédiatement et relancent le minuteur de 15 s.
+- `next`, `previous` et `refresh` acceptent l'**image du diaporama**
+  (`entity_id: image.immich_chambre_ami`) au lieu de l'identifiant de la
+  chambre : plus besoin de connaître cet identifiant dans les cartes.
+- Rotation du diaporama dans un ordre tiré au hasard à chaque sélection :
+  toutes les photos passent avant qu'une revienne, et « précédente » ramène
+  exactement la photo d'avant.
+- Nouvel attribut `chambre` (identifiant de la chambre) sur l'image ; une
+  chambre inconnue dans une action liste les chambres existantes.
+
 ## 2.1.0 — 2026-10-21
 
 - Cadre de porte : dès qu'un séjour est **programmé**, la porte affiche
