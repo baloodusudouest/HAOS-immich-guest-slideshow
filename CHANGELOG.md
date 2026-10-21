@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.1.0 — 2026-10-21
+
+- Cadre de porte : dès qu'un séjour est **programmé**, la porte affiche
+  « **Bientôt dans la chambre …** » ; pendant le séjour, « **Bienvenue dans
+  la chambre …** ». Chambre libre : logo et nom de la chambre (inchangé).
+- Le visage de chaque invité s'affiche dans le **losange du logo Petit
+  Lecussan**, à la place du « PL », avec les mêmes bordures (la Garonne en
+  blanc, la dalle n'ayant pas de bleu) ; deux invités : deux losanges côte à
+  côte. Prénoms sous les losanges, date prévue en bas.
+
 ## 2.0.0 — 2026-10-21
 
 Refonte complète. **Migration automatique** depuis la v1 : identifiants des
