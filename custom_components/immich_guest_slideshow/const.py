@@ -108,6 +108,7 @@ MAX_ALBUM_SIZE: Final = 500
 # --------------------------------------------------------------------------- #
 SERVICE_REFRESH: Final = "refresh"
 SERVICE_NEXT: Final = "next"
+SERVICE_PREVIOUS: Final = "previous"
 SERVICE_SYNC_ALBUMS: Final = "sync_albums"
 SERVICE_LINK_PERSON: Final = "link_person"
 SERVICE_UNLINK_PERSON: Final = "unlink_person"

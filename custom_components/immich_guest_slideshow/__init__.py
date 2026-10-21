@@ -104,6 +104,7 @@ from .const import (
     SERVICE_NEXT,
     SERVICE_PICPAK_NEXT,
     SERVICE_PICPAK_URLS,
+    SERVICE_PREVIOUS,
     SERVICE_REFRESH,
     SERVICE_SYNC_ALBUMS,
     SERVICE_UNLINK_PERSON,
@@ -137,6 +138,7 @@ class ImmichRuntimeData:
     reporter: ProblemReporter
     picpak: PicPakManager
     rooms: dict[str, RoomRuntime] = field(default_factory=dict)
+    entry_id: str = ""
 
     @property
     def coordinators(self) -> dict[str, RoomCoordinator]:
@@ -302,7 +304,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
     reporter = ProblemReporter(hass, entry.entry_id)
     picpak = PicPakManager(hass, entry.entry_id, api, _picpak_settings(entry))
     await picpak.async_load()
-    runtime = ImmichRuntimeData(api=api, links=links, reporter=reporter, picpak=picpak)
+    runtime = ImmichRuntimeData(
+        api=api, links=links, reporter=reporter, picpak=picpak, entry_id=entry.entry_id
+    )
 
     helper_to_room: dict[str, str] = {}
     calendar_to_rooms: dict[str, list[str]] = {}
@@ -418,9 +422,31 @@ def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) ->
     picpak = runtime.picpak
 
     def _rooms(call: ServiceCall) -> list[RoomRuntime]:
+        """Chambres visées : ``room`` (identifiant) ou ``entity_id`` (l'image
+        du diaporama de la chambre, même renommée) ; sinon toutes."""
         room = call.data.get(ATTR_ROOM)
+        entity_ids = call.data.get("entity_id") or []
+        if isinstance(entity_ids, str):
+            entity_ids = [entity_ids]
+        if entity_ids:
+            registry = er.async_get(hass)
+            by_unique = {
+                f"{runtime.entry_id}_{room_id}_image": room_id for room_id in runtime.rooms
+            }
+            found: list[RoomRuntime] = []
+            for entity_id in entity_ids:
+                ent = registry.async_get(entity_id)
+                room_id = by_unique.get(ent.unique_id) if ent else None
+                if room_id is None:
+                    raise ServiceValidationError(
+                        f"{entity_id} n'est pas le diaporama d'une chambre"
+                    )
+                found.append(runtime.rooms[room_id])
+            return found
         if room and room not in runtime.rooms:
-            raise ServiceValidationError(f"Chambre inconnue : {room}")
+            raise ServiceValidationError(
+                f"Chambre inconnue : {room} (chambres : {', '.join(runtime.rooms)})"
+            )
         return [runtime.rooms[room]] if room else list(runtime.rooms.values())
 
     async def _handle_refresh(call: ServiceCall) -> None:
@@ -430,7 +456,11 @@ def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) ->
 
     async def _handle_next(call: ServiceCall) -> None:
         for room in _rooms(call):
-            await room.coordinator.async_refresh()
+            await room.coordinator.async_step(1)
+
+    async def _handle_previous(call: ServiceCall) -> None:
+        for room in _rooms(call):
+            await room.coordinator.async_step(-1)
 
     async def _handle_sync_albums(call: ServiceCall) -> ServiceResponse:
         size = int(call.data.get(ATTR_SIZE, DEFAULT_ALBUM_SIZE))
@@ -473,9 +503,14 @@ def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) ->
         slot = call.data.get(ATTR_BED)
         return {"frames": picpak.request_next(room_id, str(slot) if slot else None)}
 
-    room_schema = vol.Schema({vol.Optional(ATTR_ROOM): cv.string})
+    room_schema = vol.Schema(
+        {vol.Optional(ATTR_ROOM): cv.string, vol.Optional("entity_id"): cv.entity_ids}
+    )
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, _handle_refresh, schema=room_schema)
     hass.services.async_register(DOMAIN, SERVICE_NEXT, _handle_next, schema=room_schema)
+    hass.services.async_register(
+        DOMAIN, SERVICE_PREVIOUS, _handle_previous, schema=room_schema
+    )
     hass.services.async_register(
         DOMAIN,
         SERVICE_SYNC_ALBUMS,
@@ -550,6 +585,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> b
     for service in (
         SERVICE_REFRESH,
         SERVICE_NEXT,
+        SERVICE_PREVIOUS,
         SERVICE_SYNC_ALBUMS,
         SERVICE_LINK_PERSON,
         SERVICE_UNLINK_PERSON,

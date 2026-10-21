@@ -70,8 +70,10 @@ class RoomCoordinator(DataUpdateCoordinator[RoomData]):
             _LOGGER.debug("[%s] Rebuild périodique", self.engine.room_id)
             await self.engine.async_rebuild()
             self._last_rebuild = dt_util.utcnow()
+        return await self._async_data(self.engine.next_photo())
+
+    async def _async_data(self, photo) -> RoomData:
         stay = await self.stay.async_status()
-        photo = self.engine.next_photo()
         if photo is None:
             return RoomData(None, None, 0, False, stay=stay)
         return RoomData(
@@ -82,6 +84,12 @@ class RoomCoordinator(DataUpdateCoordinator[RoomData]):
             object_position=await self.engine.async_object_position(photo.asset_id),
             stay=stay,
         )
+
+    async def async_step(self, delta: int) -> None:
+        """Photo suivante (``+1``) ou précédente (``-1``) tout de suite ; le
+        minuteur de 15 s repart de zéro."""
+        photo = self.engine.next_photo() if delta > 0 else self.engine.previous_photo()
+        self.async_set_updated_data(await self._async_data(photo))
 
     async def async_rebuild_and_refresh(self) -> None:
         """Reconstruit la sélection puis affiche une nouvelle photo."""
