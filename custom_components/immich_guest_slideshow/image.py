@@ -92,6 +92,9 @@ class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
             "asset_id": data.asset_id if data else None,
             "search": data.search_label if data else None,
             "photo_count": data.photo_count if data else 0,
+            # À utiliser en CSS (object-fit: cover) pour ne jamais couper
+            # le visage des invités : voir framing.py.
+            "object_position": data.object_position if data else None,
         }
 
 
