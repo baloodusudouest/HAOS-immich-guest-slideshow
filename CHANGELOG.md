@@ -26,9 +26,25 @@ chambres, entités et URL des cadres déjà flashés sont conservés.
   chambre hors séjour ; pendant le séjour, visages des invités,
   « Prénom et Prénom, bienvenue dans la chambre … » et dates.
 - Écrans texte en **or sur noir** (logo texte de secours compris).
-- Le réglage global « photos / visages » est supprimé (remplacé par le cadre
-  de porte).
+- Le choix « photos / visages » (réglage global, puis entités
+  `select.picpak_…_affichage` de la 1.11) est supprimé : les visages sont sur
+  le cadre de porte, les photos dans la chambre. La migration retire ces
+  entités.
 - Home Assistant 2025.6 minimum (sous-entrées).
+
+## 1.11.0 — 2026-10-21
+
+- Cadres PicPak : le choix **photos / visages** se fait maintenant **cadre
+  par cadre**, avec une nouvelle entité
+  `select.picpak_<chambre>_<lit>_affichage` (« Affichage pendant le séjour »)
+  sur l'appareil de chaque cadre. Le choix est mémorisé, s'applique au
+  prochain réveil du cadre, et l'aperçu `image.picpak_…` le montre tout de
+  suite. L'option globale « Pendant le séjour, afficher » disparaît des
+  options : sa valeur actuelle devient le choix initial de chaque cadre.
+- Options → Cadres PicPak : correction de l'erreur d'affichage
+  « Translation error: UNCLOSED_TAG » sur l'heure de début des photos
+  (libellé contenant `<chambre>`) ; même correction dans la réparation
+  « personne introuvable ».
 
 ## 1.10.0 — 2026-10-21
 

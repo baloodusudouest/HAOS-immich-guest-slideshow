@@ -134,3 +134,24 @@ async def test_v1_entry_is_migrated(hass: HomeAssistant, hass_storage: dict[str,
     # Jeton conservé : les URL des cadres flashés ne changent pas.
     assert entry.runtime_data.picpak.token == TOKEN
     assert set(entry.runtime_data.picpak.frames) == {"chambre_d_ami/1", "chambre_d_ami/2"}
+
+
+async def test_v1_11_select_entities_are_removed(
+    hass: HomeAssistant, hass_storage: dict[str, Any]
+) -> None:
+    FakeImmich.reset()
+    entry = _v1_entry()
+    entry.add_to_hass(hass)
+    ent_reg = er.async_get(hass)
+    ent_reg.async_get_or_create(
+        "select",
+        DOMAIN,
+        f"{entry.entry_id}_chambre_d_ami_picpak_1_mode",
+        config_entry=entry,
+        suggested_object_id="picpak_chambre_d_ami_1_affichage",
+    )
+    with patch_immich():
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+    assert entry.version == 2
+    assert ent_reg.async_get("select.picpak_chambre_d_ami_1_affichage") is None
