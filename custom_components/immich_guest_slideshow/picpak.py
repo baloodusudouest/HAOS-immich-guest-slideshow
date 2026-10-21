@@ -20,9 +20,10 @@ Deux emplacements par chambre :
 
 **Cadre de la porte** (« porte ») :
 
-- hors séjour : logo + nom de la chambre ;
-- séjour en cours : visages des invités, « Prénom et Prénom, bienvenue dans la
-  chambre … » et dates.
+- chambre libre : logo + nom de la chambre ;
+- séjour programmé : « Bientôt dans la chambre … », visage de chaque invité
+  dans le losange du logo Petit Lecussan, prénoms, date prévue ;
+- séjour en cours : la même carte avec « Bienvenue dans la chambre … ».
 
 Le séjour va du jour d'arrivée à 9 h (réglable) jusqu'au lendemain du dernier
 jour à 00:01 (voir :mod:`.stay`). Un écran inchangé n'est jamais redessiné :
@@ -454,9 +455,11 @@ class PicPakManager:
         name = room.config.name
         frame = self.frames[key]
         if slot == DOOR_SLOT:
-            if stay.active and self._names(room, stay, first=True):
-                end = stay.window[1] if stay.window else None
-                return _Screen(DOOR, ONGOING, transition=end)
+            if (stay.active or stay.days is not None) and self._names(room, stay, first=True):
+                if stay.active:
+                    end = stay.window[1] if stay.window else None
+                    return _Screen(DOOR, ONGOING, transition=end)
+                return _Screen(DOOR, PLANNED, transition=stay.next_start)
             return _Screen(LOGO, FREE, caption=name, transition=stay.next_start)
         if stay.active and frame.assets:
             end = stay.window[1] if stay.window else None
@@ -646,7 +649,8 @@ class PicPakManager:
         return self._person_faces[person_id]
 
     async def _async_door_card(self, room_id: str, stay: StayStatus) -> bytes:
-        """Carte de la porte : visages, « Prénom et Prénom, bienvenue… », dates."""
+        """Carte de la porte : « Bientôt / Bienvenue dans la chambre … »,
+        visages dans le losange du logo, prénoms, date prévue."""
         room = self.rooms[room_id]
         engine = room.engine
         guests: list[tuple[str, str | None]] = []
@@ -656,13 +660,14 @@ class PicPakManager:
             guests.append((first_name(name) or name, pid))
         if not guests:
             guests = [(n, None) for n in self._names(room, stay, first=True)]
-        signature = (tuple(guests), stay.label, room.config.name)
+        upcoming = not stay.active
+        signature = (tuple(guests), stay.label, room.config.name, upcoming)
         cached = self._door_cards.get(room_id)
         if cached and cached[0] == signature:
             return cached[1]
         faces = [(name, await self._async_person_face(pid)) for name, pid in guests]
         body = await self.hass.async_add_executor_job(
-            picpak_render.render_door, room.config.name, faces, stay.label
+            picpak_render.render_door, room.config.name, faces, stay.label, upcoming
         )
         # Une vignette manquante sera retentée au prochain réveil.
         if all(face is not None for _, face in faces):
