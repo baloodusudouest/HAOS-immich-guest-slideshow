@@ -44,6 +44,7 @@
         "title": "Cadres e-ink PicPak",
         "description": "Un cadre par lit : le cadre n° 1 suit le premier helper de la chambre, le n° 2 le second. Les URL à saisir dans chaque cadre s'obtiennent avec le service « PicPak : URL des cadres ».",
         "data": {
+          "picpak_mode": "Pendant le séjour, afficher",
           "picpak_interval": "Minutes entre deux photos",
           "picpak_photos": "Photos par cadre et par séjour",
           "picpak_arrival_hour": "Heure de début des photos le jour d'arrivée (calendrier calendar.<chambre>)",
@@ -138,6 +139,14 @@
     "helper_missing": {
       "title": "Helper introuvable : {name}",
       "description": "Le helper « {name} » configuré pour la chambre {rooms} n'existe pas : cette chambre ne voit aucun invité. Créez-le, ou corrigez les helpers de la chambre : Paramètres → Appareils et services → Immich Guest Slideshow → Configurer (supprimer puis recréer la chambre)."
+    }
+  },
+  "selector": {
+    "picpak_mode": {
+      "options": {
+        "photos": "Les photos des invités (une par heure)",
+        "visages": "Les visages des invités, avec la chambre, les noms et les dates"
+      }
     }
   }
 }

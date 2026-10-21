@@ -44,6 +44,7 @@
         "title": "PicPak e-ink frames",
         "description": "One frame per bed: frame 1 follows the room's first helper, frame 2 the second. Get the URL to store in each frame with the \"PicPak: frame URLs\" service.",
         "data": {
+          "picpak_mode": "During the stay, show",
           "picpak_interval": "Minutes between two photos",
           "picpak_photos": "Photos per frame and per stay",
           "picpak_arrival_hour": "Hour photos start on arrival day (calendar.<room> calendar)",
@@ -138,6 +139,14 @@
     "helper_missing": {
       "title": "Helper not found: {name}",
       "description": "The helper \"{name}\" configured for room {rooms} does not exist, so that room sees no guest. Create it, or fix the room's helpers: Settings → Devices & services → Immich Guest Slideshow → Configure (remove then re-add the room)."
+    }
+  },
+  "selector": {
+    "picpak_mode": {
+      "options": {
+        "photos": "The guests' photos (one per hour)",
+        "visages": "The guests' faces, with room, names and dates"
+      }
     }
   }
 }

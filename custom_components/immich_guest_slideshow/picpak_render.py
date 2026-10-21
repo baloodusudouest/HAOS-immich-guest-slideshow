@@ -444,3 +444,81 @@ def render_logo(
     if caption:
         img = _add_caption(img, caption.strip())
     return pack(quantize(img, dither=False))
+
+
+# --------------------------------------------------------------------------- #
+# Mode « visages » : carte des invités pendant le séjour
+# --------------------------------------------------------------------------- #
+def _face_disc(face: bytes | None, name: str, size: int) -> Image.Image:
+    """Visage carré (vignette Immich) ou, à défaut, initiales sur fond noir."""
+    if face:
+        try:
+            with Image.open(io.BytesIO(face)) as src:
+                img = ImageOps.exif_transpose(src).convert("RGB")
+            img = ImageOps.fit(img, (size, size), Image.Resampling.LANCZOS, centering=(0.5, 0.4))
+            img = ImageOps.autocontrast(img, cutoff=1)
+            return ImageEnhance.Contrast(img).enhance(1.15)
+        except OSError:
+            pass
+    img = Image.new("RGB", (size, size), PALETTE[BLACK])
+    draw = ImageDraw.Draw(img)
+    initials = "".join(w[0] for w in name.split()[:2]).upper() or "?"
+    font = _font(size // 3, bold=True)
+    box = draw.textbbox((0, 0), initials, font=font)
+    draw.text(
+        ((size - (box[2] - box[0])) / 2 - box[0], (size - (box[3] - box[1])) / 2 - box[1]),
+        initials,
+        font=font,
+        fill=PALETTE[YELLOW],
+    )
+    return img
+
+
+def render_faces(
+    room: str, guests: Sequence[tuple[str, bytes | None]], dates: str = ""
+) -> bytes:
+    """Carte « médaillon » : visage(s) des invités, chambre, nom(s) et dates.
+
+    Fond noir ; en haut le nom de la chambre en capitales or ; au centre un ou
+    deux visages dans un cercle or (un seul invité : centré) ; dessous le nom
+    complet (un invité) ou les prénoms (deux invités) ; en bas les dates.
+    """
+    img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[BLACK])
+    draw = ImageDraw.Draw(img)
+
+    def centered(cx: float, top: float, text: str, font, fill) -> None:
+        box = draw.textbbox((0, 0), text, font=font)
+        draw.text((cx - (box[2] - box[0]) / 2 - box[0], top - box[1]), text, font=font, fill=fill)
+
+    def fit(text: str, sizes: tuple[int, ...], bold: bool, max_w: int):
+        for size in sizes:
+            font = _font(size, bold=bold)
+            box = draw.textbbox((0, 0), text, font=font)
+            if box[2] - box[0] <= max_w:
+                return font
+        return font
+
+    title = room.upper()
+    centered(FRAME_W / 2, 10, title, fit(title, (15, 14, 13, 12), True, FRAME_W - 40), PALETTE[YELLOW])
+    draw.line((120, 32, 280, 32), fill=PALETTE[YELLOW], width=1)
+
+    guests = list(guests)[:2]
+    two = len(guests) == 2
+    size = 128 if two else 150
+    centers = [FRAME_W / 2 - 80, FRAME_W / 2 + 80] if two else [FRAME_W / 2]
+    mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+    top = 44
+    for (name, face), cx in zip(guests, centers, strict=True):
+        x0 = int(cx - size / 2)
+        img.paste(_face_disc(face, name, size), (x0, top), mask)
+        draw.ellipse((x0 - 3, top - 3, x0 + size + 2, top + size + 2), outline=PALETTE[YELLOW], width=3)
+        if two:
+            label = name.split()[0] if name.split() else name  # prénoms, homogènes
+            centered(cx, top + size + 10, label, fit(label, (17, 15, 13), True, 150), PALETTE[WHITE])
+    if not two and guests:
+        name = guests[0][0]
+        centered(FRAME_W / 2, 208, name, fit(name, (22, 20, 18, 16), True, FRAME_W - 20), PALETTE[WHITE])
+    if dates:
+        centered(FRAME_W / 2, 262 if two else 268, dates, fit(dates, (16, 14, 12), False, FRAME_W - 20), PALETTE[YELLOW])
+    return pack(quantize(img, dither=True))
