@@ -149,13 +149,20 @@ préparée à l'avance pour répondre en quelques millisecondes.
 
 ### Mode « visages »
 
-Options → **Cadres PicPak** → « Pendant le séjour, afficher » : **les visages
-des invités**. Pendant le séjour, les cadres de la chambre affichent alors une
+Le choix se fait **cadre par cadre**, avec l'entité
+`select.picpak_<chambre>_<lit>_affichage` (« Affichage pendant le séjour ») :
+**Photos des invités** ou **Visages des invités**. On peut ainsi avoir les
+visages sur un cadre et les photos sur l'autre. Le choix est mémorisé et
+s'applique au prochain réveil du cadre (ou tout de suite sur un appui de son
+bouton) ; l'aperçu `image.picpak_…` le montre immédiatement.
+
+En mode visages, pendant le séjour, le cadre affiche une
 carte fixe au lieu des photos : nom de la chambre en haut, visage de chaque
 invité dans un médaillon (vignette de la personne dans Immich ; centré s'il
 n'y a qu'un invité, côte à côte avec les prénoms s'ils sont deux), nom
-complet (un invité) et dates du séjour en bas. Les deux cadres montrent la
-même carte ; elle n'est redessinée que si les invités ou les dates changent.
+complet (un invité) et dates du séjour en bas. Les cadres en mode visages
+d'une même chambre montrent la même carte ; elle n'est redessinée que si les
+invités ou les dates changent.
 Sans vignette Immich, les initiales remplacent le visage. Hors séjour, le
 logo s'affiche comme d'habitude.
 
@@ -174,6 +181,8 @@ logo s'affiche comme d'habitude.
 
 - `image.picpak_<chambre>_<lit>` : aperçu de ce qu'affiche la dalle, avec ses
   vraies couleurs ;
+- `select.picpak_<chambre>_<lit>_affichage` : affichage du cadre pendant le
+  séjour, `photos` ou `visages` (voir « Mode visages ») ;
 - `sensor.picpak_<chambre>_<lit>_batterie` : batterie (%), avec en attributs la
   tension, l'invité, la photo en cours, la cause du dernier réveil ;
 - `sensor.picpak_<chambre>_<lit>_derniere_connexion` : pour repérer un cadre

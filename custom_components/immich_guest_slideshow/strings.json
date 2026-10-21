@@ -44,10 +44,9 @@
         "title": "PicPak e-ink frames",
         "description": "One frame per bed: frame 1 follows the room's first helper, frame 2 the second. Get the URL to store in each frame with the \"PicPak: frame URLs\" service.",
         "data": {
-          "picpak_mode": "During the stay, show",
           "picpak_interval": "Minutes between two photos",
           "picpak_photos": "Photos per frame and per stay",
-          "picpak_arrival_hour": "Hour photos start on arrival day (calendar.<room> calendar)",
+          "picpak_arrival_hour": "Start hour of the photos on arrival day (from the room calendar)",
           "picpak_quiet": "Night pause, e.g. 23:00-07:00 (empty = none)",
           "picpak_logo": "Frame 1 logo when the room is free (path to a PNG)",
           "picpak_logo_2": "Frame 2 logo (path to a PNG; empty = same as frame 1)",
@@ -95,6 +94,15 @@
       "picpak_screen": {
         "name": "Screen"
       }
+    },
+    "select": {
+      "picpak_mode": {
+        "name": "Display during the stay",
+        "state": {
+          "photos": "Guest photos",
+          "visages": "Guest faces (room, names, dates)"
+        }
+      }
     }
   },
   "issues": {
@@ -104,7 +112,7 @@
         "step": {
           "confirm": {
             "title": "Link {name} to an Immich person",
-            "description": "\"{name}\" (room: {rooms}) matches nobody in Immich. In Immich, open the person's page and copy its URL (http://…/people/<id>) or just the ID, then paste it here. The link is remembered.",
+            "description": "\"{name}\" (room: {rooms}) matches nobody in Immich. In Immich, open the person's page and copy its URL (http://…/people/…) or just the ID, then paste it here. The link is remembered.",
             "data": {
               "person_id": "Immich person ID or URL"
             }
@@ -139,14 +147,6 @@
     "helper_missing": {
       "title": "Helper not found: {name}",
       "description": "The helper \"{name}\" configured for room {rooms} does not exist, so that room sees no guest. Create it, or fix the room's helpers: Settings → Devices & services → Immich Guest Slideshow → Configure (remove then re-add the room)."
-    }
-  },
-  "selector": {
-    "picpak_mode": {
-      "options": {
-        "photos": "The guests' photos (one per hour)",
-        "visages": "The guests' faces, with room, names and dates"
-      }
     }
   }
 }
