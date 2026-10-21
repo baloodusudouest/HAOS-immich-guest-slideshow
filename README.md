@@ -54,6 +54,27 @@ la chambre est refaite automatiquement.
 Le sensor expose en attributs les invités détectés, le nombre de photos en
 cache et la liste des recherches actives.
 
+L'entité image expose `asset_id`, `search`, `photo_count` et
+**`object_position`** : la position CSS à donner à la photo (`object-fit:
+cover`) pour que **le visage entier des invités reste visible**, sans zoom
+(voir l'exemple de carte plus bas).
+
+### Visages toujours entiers dans le diaporama
+
+Pour chaque photo, l'intégration lit les visages détectés par Immich (clé API
+avec la permission « face.read ») et calcule `object_position` :
+
+- zone gardée : les visages des invités de la chambre (les deux s'ils sont sur
+  la photo), à défaut tous les visages détectés, **agrandie** pour inclure
+  cheveux, menton et oreilles ;
+- la position est choisie pour que cette zone soit entièrement visible **quelle
+  que soit la taille d'affichage** (largeur d'écran, hauteur de la carte), dès
+  que la zone visible est au moins aussi grande qu'elle. La photo n'est jamais
+  agrandie : on voit toujours la scène, pas seulement le visage ;
+- sans visage connu : `50% 30%` (un peu au-dessus du centre).
+
+Un seul appel Immich par photo et par séjour (mémorisé).
+
 ## Services
 
 - `immich_guest_slideshow.refresh` — vide et reconstruit le cache d'une
@@ -237,6 +258,21 @@ entity: image.immich_chambre_d_ami
 show_state: false
 show_name: false
 camera_view: auto
+```
+
+Avec recadrage sur les visages (nécessite [card-mod](https://github.com/thomasloven/lovelace-card-mod)) :
+
+```yaml
+type: picture
+image_entity: image.immich_chambre_d_ami
+card_mod:
+  style: |
+    img {
+      width: 100%;
+      max-height: 300px;
+      object-fit: cover !important;
+      object-position: {{ state_attr('image.immich_chambre_d_ami', 'object_position') or '50% 30%' }} !important;
+    }
 ```
 
 ## Développement
