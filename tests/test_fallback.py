@@ -84,9 +84,11 @@ def test_no_fallback_when_owner_photos_reach_the_target() -> None:
 
     assert engine.photo_count == 3
     assert ["Alice"] not in api.search_calls  # jamais cherchée seule
+    # Ordre v2 : invité + tous les propriétaires, puis + le premier : cible
+    # atteinte, le second propriétaire n'est même pas cherché.
     assert [c.label for c in engine.combos] == [
+        "Alice + Propriétaire 1 + Propriétaire 2",
         "Alice + Propriétaire 1",
-        "Alice + Propriétaire 2",
     ]
 
 

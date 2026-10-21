@@ -1,5 +1,5 @@
-"""Entités image : une par chambre (image.immich_<chambre>), et une par
-cadre PicPak (image.picpak_<chambre>_<lit>) montrant ce qu'affiche la dalle."""
+"""Entités image : diaporama de chaque chambre (``image.immich_<chambre>``) et
+aperçu de chaque cadre PicPak (``image.picpak_<chambre>_<emplacement>``)."""
 from __future__ import annotations
 
 from homeassistant.components.image import ImageEntity
@@ -13,7 +13,17 @@ from homeassistant.util import dt as dt_util
 from . import ImmichConfigEntry
 from .const import DOMAIN, MANUFACTURER, SIGNAL_PICPAK_UPDATE
 from .coordinator import RoomCoordinator, RoomData
-from .picpak import FACES, LOGO, PicPakManager, frame_device_info
+from .picpak import DOOR, LOGO, PicPakManager, frame_device_info, frame_key
+
+
+def room_device_info(entry_id: str, room_id: str, room_name: str) -> DeviceInfo:
+    """Appareil d'une chambre (porte le diaporama ; parent de ses cadres)."""
+    return DeviceInfo(
+        identifiers={(DOMAIN, f"{entry_id}_{room_id}")},
+        name=f"Immich {room_name}",
+        manufacturer=MANUFACTURER,
+        model="Guest Slideshow",
+    )
 
 
 async def async_setup_entry(
@@ -21,55 +31,44 @@ async def async_setup_entry(
     entry: ImmichConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Ajoute une entité image par chambre et une par cadre PicPak."""
-    entities: list[ImageEntity] = [
-        ImmichRoomImage(hass, entry, coordinator)
-        for coordinator in entry.runtime_data.coordinators.values()
-    ]
-    manager = entry.runtime_data.picpak
-    if manager is not None:
+    """Par chambre : son diaporama et l'aperçu de chacun de ses cadres."""
+    runtime = entry.runtime_data
+    for room_id, room in runtime.rooms.items():
+        entities: list[ImageEntity] = [ImmichRoomImage(hass, entry, room.coordinator)]
         entities.extend(
-            PicPakFrameImage(hass, entry, manager, key) for key in manager.frames
+            PicPakFrameImage(hass, entry, runtime.picpak, frame_key(room_id, slot))
+            for slot in room.config.slots
         )
-    async_add_entities(entities)
+        async_add_entities(entities, config_subentry_id=room.config.subentry_id)
 
 
 class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
-    """Image du diaporama d'une chambre."""
+    """Photo courante du diaporama de la chambre (dashboards)."""
 
     _attr_has_entity_name = True
     _attr_content_type = "image/jpeg"
 
     def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: ImmichConfigEntry,
-        coordinator: RoomCoordinator,
+        self, hass: HomeAssistant, entry: ImmichConfigEntry, coordinator: RoomCoordinator
     ) -> None:
-        """Initialise l'entité image de la chambre."""
         CoordinatorEntity.__init__(self, coordinator)
         ImageEntity.__init__(self, hass)
-        room_id = coordinator.engine.room_id
+        engine = coordinator.engine
+        room_id = engine.room_id
         self._attr_unique_id = f"{entry.entry_id}_{room_id}_image"
-        # Force l'entity_id attendu : image.immich_chambre_xxx
         self.entity_id = f"image.immich_{room_id}"
         self._attr_name = None
         self._last_asset_id: str | None = None
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{entry.entry_id}_{room_id}")},
-            name=f"Immich {coordinator.engine.room_name}",
-            manufacturer=MANUFACTURER,
-            model="Guest Slideshow",
-        )
+        self._attr_device_info = room_device_info(entry.entry_id, room_id, engine.room_name)
 
     @property
     def available(self) -> bool:
-        """Indisponible si aucun invité (aucune photo à afficher)."""
+        """Indisponible tant qu'aucun invité n'est renseigné."""
         data: RoomData | None = self.coordinator.data
         return super().available and data is not None and data.active
 
+    @callback
     def _handle_coordinator_update(self) -> None:
-        """Met à jour l'horodatage d'image quand l'asset change."""
         data: RoomData | None = self.coordinator.data
         asset_id = data.asset_id if data else None
         if asset_id != self._last_asset_id:
@@ -78,23 +77,27 @@ class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
         super()._handle_coordinator_update()
 
     async def async_image(self) -> bytes | None:
-        """Retourne les octets de la photo courante (None si aucun invité)."""
         data: RoomData | None = self.coordinator.data
         if data is None or not data.active:
             return None
         return await self.coordinator.engine.async_get_image_bytes()
 
     @property
-    def extra_state_attributes(self) -> dict[str, str | int | None]:
-        """Attributs de diagnostic utiles pour les cartes Lovelace."""
+    def extra_state_attributes(self) -> dict[str, object]:
+        """Pour les cartes : cadrage visages et séjour prévu."""
         data: RoomData | None = self.coordinator.data
+        stay = data.stay if data else None
+        days = stay.days if stay else None
         return {
             "asset_id": data.asset_id if data else None,
             "search": data.search_label if data else None,
             "photo_count": data.photo_count if data else 0,
-            # À utiliser en CSS (object-fit: cover) pour ne jamais couper
-            # le visage des invités : voir framing.py.
             "object_position": data.object_position if data else None,
+            "invites": self.coordinator.engine.get_guests(),
+            "sejour": data.stay_state if data else None,
+            "sejour_dates": stay.label if stay else "",
+            "sejour_debut": days[0].isoformat() if days else None,
+            "sejour_fin": days[1].isoformat() if days else None,
         }
 
 
@@ -117,9 +120,9 @@ class PicPakFrameImage(ImageEntity):
         self._manager = manager
         self._key = key
         self._entry_id = entry.entry_id
-        room_id, bed = key.rsplit("/", 1)
-        self._attr_unique_id = f"{entry.entry_id}_{room_id}_picpak_{bed}_image"
-        self.entity_id = f"image.picpak_{room_id}_{bed}"
+        room_id, slot = key.rsplit("/", 1)
+        self._attr_unique_id = f"{entry.entry_id}_{room_id}_picpak_{slot}_image"
+        self.entity_id = f"image.picpak_{room_id}_{slot}"
         self._attr_device_info = frame_device_info(entry.entry_id, manager, key)
         self._rev = manager.body_revision(key)
         self._attr_image_last_updated = dt_util.utcnow()
@@ -142,7 +145,7 @@ class PicPakFrameImage(ImageEntity):
         self.async_write_ha_state()
 
     async def async_image(self) -> bytes | None:
-        """PNG du dernier tampon envoyé au cadre."""
+        """PNG de ce qu'affiche (ou affichera) le cadre."""
         return await self._manager.async_preview(self._key)
 
     @property
@@ -150,10 +153,6 @@ class PicPakFrameImage(ImageEntity):
         frame = self._manager.frames[self._key]
         return {
             "invite": frame.guest_name,
-            "asset_id": frame.shown if frame.shown not in (LOGO, FACES) else None,
-            "affichage": (
-                "visages" if frame.shown == FACES
-                else "logo" if not frame.assets
-                else "photos"
-            ),
+            "asset_id": frame.shown if frame.shown not in (LOGO, DOOR) else None,
+            "etat": frame.state,
         }

@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.0.0 — 2026-10-21
+
+Refonte complète. **Migration automatique** depuis la v1 : identifiants des
+chambres, entités et URL des cadres déjà flashés sont conservés.
+
+- **Une ligne par chambre** : chaque chambre est une sous-entrée de
+  l'intégration, avec son propre bouton « Configurer » : nom, calendrier des
+  séjours, invités (1 ou 2 helpers), cadre PicPak sur la porte (oui/non),
+  cadres PicPak dans la chambre (0 à 2). Les options ne gardent que les
+  réglages communs (propriétaires, dashboards, cadres).
+- **Nouvel ordre des photos** : invité + tous les propriétaires, puis invité +
+  chaque propriétaire, puis invités ensemble, puis invité seul.
+- **Dashboards** : 100 photos, une toutes les 15 s, dès que l'invité est
+  renseigné ; nouveaux attributs `invites`, `sejour` (`en_cours` /
+  `programme` / `libre`), `sejour_dates`, `sejour_debut`, `sejour_fin`.
+- **Séjour** : du jour d'arrivée à 9 h (réglable) jusqu'au **lendemain du
+  dernier jour à 00:01** ; le prochain séjour est lu quelle que soit sa date.
+- **Cadres dans la chambre** : logo + nom de la chambre si libre ; logo,
+  chambre, noms des invités et dates si un séjour est programmé ; pendant le
+  séjour, **une photo par heure, autant que d'heures de séjour** (pause
+  nocturne exclue). Un invité par cadre ; un invité seul sur deux cadres sans
+  doublon ; un cadre pour deux invités : photos mélangées.
+- **Nouveau cadre de porte** (`…/picpak/<chambre>/porte`) : logo et nom de la
+  chambre hors séjour ; pendant le séjour, visages des invités,
+  « Prénom et Prénom, bienvenue dans la chambre … » et dates.
+- Écrans texte en **or sur noir** (logo texte de secours compris).
+- Le réglage global « photos / visages » est supprimé (remplacé par le cadre
+  de porte).
+- Home Assistant 2025.6 minimum (sous-entrées).
+
 ## 1.10.0 — 2026-10-21
 
 - Cadres PicPak : nouveau **mode « visages »** (Options → Cadres PicPak →

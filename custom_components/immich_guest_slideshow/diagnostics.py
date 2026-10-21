@@ -1,4 +1,4 @@
-"""Diagnostics de l'intégration (clé API expurgée)."""
+"""Diagnostics de l'intégration (clé API et jeton des cadres expurgés)."""
 from __future__ import annotations
 
 from typing import Any
@@ -16,31 +16,39 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ImmichConfigEntry
 ) -> dict[str, Any]:
     """Retourne les diagnostics de la config entry."""
+    runtime = entry.runtime_data
     rooms: dict[str, Any] = {}
-    for room_id, coordinator in entry.runtime_data.coordinators.items():
-        engine = coordinator.engine
-        data = coordinator.data
+    for room_id, room in runtime.rooms.items():
+        engine = room.engine
+        data = room.coordinator.data if room.coordinator else None
+        stay = room.stay.cached
         rooms[room_id] = {
-            "name": engine.room_name,
-            "helpers": engine.helpers,
+            "config": {
+                "name": room.config.name,
+                "calendar": room.config.calendar,
+                "helpers": list(room.config.helpers),
+                "door_frame": room.config.door_frame,
+                "room_frames": room.config.room_frames,
+            },
             "guests": engine.get_guests(),
             "searches": [combo.label for combo in engine.combos],
             "photo_count": data.photo_count if data else 0,
-            "active": data.active if data else False,
+            "stay": {
+                "state": stay.state if stay else None,
+                "dates": stay.label if stay else None,
+                "names": list(stay.names) if stay else [],
+            },
         }
-    picpak: dict[str, Any] = {}
-    manager = entry.runtime_data.picpak
-    if manager is not None:
-        # Le jeton d'accès des cadres n'apparaît jamais dans les diagnostics.
-        for key, frame in manager.frames.items():
-            data = frame.as_dict()
-            data["assets"] = len(frame.assets)
-            picpak[key] = data
+    frames: dict[str, Any] = {}
+    for key, frame in runtime.picpak.frames.items():
+        info = frame.as_dict()
+        info["assets"] = len(frame.assets)
+        frames[key] = info
     return {
         "entry": {
             "data": async_redact_data(dict(entry.data), TO_REDACT),
             "options": dict(entry.options),
         },
         "rooms": rooms,
-        "picpak": picpak,
+        "picpak": frames,
     }

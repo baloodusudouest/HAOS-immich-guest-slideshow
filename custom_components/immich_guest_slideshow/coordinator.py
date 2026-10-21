@@ -1,4 +1,4 @@
-"""DataUpdateCoordinator pilotant la rotation d'images d'une chambre."""
+"""Coordinateur du diaporama d'une chambre (dashboards invité et gestionnaire)."""
 from __future__ import annotations
 
 import logging
@@ -11,13 +11,14 @@ from homeassistant.util import dt as dt_util
 
 from .const import DOMAIN
 from .slideshow import SlideshowEngine
+from .stay import FREE, StayStatus, StayTracker
 
 _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class RoomData:
-    """Données exposées par le coordinateur à chaque tick."""
+    """Données exposées à chaque tick (une photo toutes les 15 s par défaut)."""
 
     asset_id: str | None
     search_label: str | None
@@ -25,31 +26,31 @@ class RoomData:
     active: bool
     # ``object-position`` CSS gardant visibles les visages des invités.
     object_position: str | None = None
+    stay: StayStatus | None = None
+
+    @property
+    def stay_state(self) -> str:
+        """« en_cours », « programme » ou « libre »."""
+        return self.stay.state if self.stay is not None else FREE
 
 
 class RoomCoordinator(DataUpdateCoordinator[RoomData]):
-    """Un coordinateur indépendant par chambre.
+    """Fait avancer le diaporama d'une chambre depuis son cache local.
 
-    Le ``update_interval`` correspond à la durée d'affichage d'une image :
-    à chaque tick, on pioche la photo suivante dans le cache local
-    (aucun appel Immich, sauf lors d'un rebuild).
+    À chaque tick, la photo suivante est prise dans le cache (aucun appel
+    Immich, sauf le cadrage des visages, mémorisé, et un rebuild périodique).
     """
 
     def __init__(
         self,
         hass: HomeAssistant,
         engine: SlideshowEngine,
+        stay: StayTracker,
         interval_seconds: int,
         rebuild_hours: int = 0,
     ) -> None:
-        """Initialise le coordinateur de la chambre.
-
-        Args:
-            rebuild_hours: si > 0, le cache est reconstruit automatiquement
-                toutes les ``rebuild_hours`` heures pour intégrer les
-                nouvelles photos ajoutées dans Immich.
-        """
         self.engine = engine
+        self.stay = stay
         self._rebuild_interval = (
             timedelta(hours=rebuild_hours) if rebuild_hours > 0 else None
         )
@@ -62,38 +63,29 @@ class RoomCoordinator(DataUpdateCoordinator[RoomData]):
         )
 
     async def _async_update_data(self) -> RoomData:
-        """Avance le diaporama d'une image (depuis le cache uniquement).
-
-        Un rebuild complet (appels Immich) n'est déclenché que si le délai
-        de rafraîchissement périodique est écoulé.
-        """
         if (
             self._rebuild_interval is not None
             and dt_util.utcnow() - self._last_rebuild >= self._rebuild_interval
         ):
-            _LOGGER.debug("[%s] Rebuild périodique du cache", self.engine.room_id)
+            _LOGGER.debug("[%s] Rebuild périodique", self.engine.room_id)
             await self.engine.async_rebuild()
             self._last_rebuild = dt_util.utcnow()
+        stay = await self.stay.async_status()
         photo = self.engine.next_photo()
         if photo is None:
-            return RoomData(
-                asset_id=None,
-                search_label=None,
-                photo_count=0,
-                active=False,
-            )
+            return RoomData(None, None, 0, False, stay=stay)
         return RoomData(
             asset_id=photo.asset_id,
             search_label=photo.search_label,
             photo_count=self.engine.photo_count,
             active=True,
-            object_position=await self.engine.async_object_position(
-                photo.asset_id
-            ),
+            object_position=await self.engine.async_object_position(photo.asset_id),
+            stay=stay,
         )
 
     async def async_rebuild_and_refresh(self) -> None:
-        """Reconstruit les recherches/cache puis force un rafraîchissement."""
+        """Reconstruit la sélection puis affiche une nouvelle photo."""
+        self.stay.invalidate()
         await self.engine.async_rebuild()
         self._last_rebuild = dt_util.utcnow()
         await self.async_request_refresh()

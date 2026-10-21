@@ -1,4 +1,4 @@
-"""Sensors : recherche Immich courante par chambre, état des cadres PicPak."""
+"""Capteurs : recherche Immich courante par chambre, état des cadres PicPak."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -10,16 +10,16 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from . import ImmichConfigEntry
-from .const import DOMAIN, MANUFACTURER, SIGNAL_PICPAK_UPDATE
+from .const import SIGNAL_PICPAK_UPDATE
 from .coordinator import RoomCoordinator, RoomData
-from .picpak import PicPakManager, frame_device_info
+from .image import room_device_info
+from .picpak import DOOR, LOGO, FrameState, PicPakManager, frame_device_info, frame_key
 
 
 async def async_setup_entry(
@@ -27,57 +27,44 @@ async def async_setup_entry(
     entry: ImmichConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Ajoute un sensor 'current search' par chambre, et deux par cadre."""
-    entities: list[SensorEntity] = [
-        ImmichCurrentSearchSensor(entry, coordinator)
-        for coordinator in entry.runtime_data.coordinators.values()
-    ]
-    manager = entry.runtime_data.picpak
-    if manager is not None:
-        for key in manager.frames:
-            entities.append(PicPakBatterySensor(entry, manager, key))
-            entities.append(PicPakLastSeenSensor(entry, manager, key))
-    async_add_entities(entities)
+    """Par chambre : recherche courante ; par cadre : batterie et connexion."""
+    runtime = entry.runtime_data
+    for room_id, room in runtime.rooms.items():
+        entities: list[SensorEntity] = [ImmichCurrentSearchSensor(entry, room.coordinator)]
+        for slot in room.config.slots:
+            key = frame_key(room_id, slot)
+            entities.append(PicPakBatterySensor(entry, runtime.picpak, key))
+            entities.append(PicPakLastSeenSensor(entry, runtime.picpak, key))
+        async_add_entities(entities, config_subentry_id=room.config.subentry_id)
 
 
 class ImmichCurrentSearchSensor(CoordinatorEntity[RoomCoordinator], SensorEntity):
-    """Expose la combinaison de recherche de la photo affichée."""
+    """Combinaison de recherche de la photo affichée (ex. « Alice + Julien »)."""
 
     _attr_has_entity_name = True
     _attr_translation_key = "current_search"
     _attr_icon = "mdi:image-search"
 
-    def __init__(
-        self, entry: ImmichConfigEntry, coordinator: RoomCoordinator
-    ) -> None:
-        """Initialise le sensor de la chambre."""
+    def __init__(self, entry: ImmichConfigEntry, coordinator: RoomCoordinator) -> None:
         super().__init__(coordinator)
-        room_id = coordinator.engine.room_id
+        engine = coordinator.engine
+        room_id = engine.room_id
         self._attr_unique_id = f"{entry.entry_id}_{room_id}_current_search"
-        # Force l'entity_id attendu : sensor.immich_chambre_xxx_current_search
         self.entity_id = f"sensor.immich_{room_id}_current_search"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{entry.entry_id}_{room_id}")},
-            name=f"Immich {coordinator.engine.room_name}",
-            manufacturer=MANUFACTURER,
-            model="Guest Slideshow",
-        )
+        self._attr_device_info = room_device_info(entry.entry_id, room_id, engine.room_name)
 
     @property
     def available(self) -> bool:
-        """Indisponible si aucun invité renseigné."""
         data: RoomData | None = self.coordinator.data
         return super().available and data is not None and data.active
 
     @property
     def native_value(self) -> str | None:
-        """Libellé de la recherche courante (ex. 'Alice + Propriétaire 1')."""
         data: RoomData | None = self.coordinator.data
         return data.search_label if data else None
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Détails : invités détectés, nb de photos, recherches actives."""
         engine = self.coordinator.engine
         data: RoomData | None = self.coordinator.data
         return {
@@ -94,20 +81,17 @@ class _PicPakSensor(SensorEntity):
     _attr_should_poll = False
     _suffix = ""
 
-    def __init__(
-        self, entry: ImmichConfigEntry, manager: PicPakManager, key: str
-    ) -> None:
+    def __init__(self, entry: ImmichConfigEntry, manager: PicPakManager, key: str) -> None:
         self._manager = manager
         self._key = key
         self._entry_id = entry.entry_id
-        room_id, bed = key.rsplit("/", 1)
-        self._attr_unique_id = f"{entry.entry_id}_{room_id}_picpak_{bed}_{self._suffix}"
-        # entity_id attendu : sensor.picpak_chambre_xxx_1_<suffixe>
-        self.entity_id = f"sensor.picpak_{room_id}_{bed}_{self._suffix}"
+        room_id, slot = key.rsplit("/", 1)
+        self._attr_unique_id = f"{entry.entry_id}_{room_id}_picpak_{slot}_{self._suffix}"
+        self.entity_id = f"sensor.picpak_{room_id}_{slot}_{self._suffix}"
         self._attr_device_info = frame_device_info(entry.entry_id, manager, key)
 
     @property
-    def _frame(self):
+    def _frame(self) -> FrameState:
         return self._manager.frames[self._key]
 
     @property
@@ -130,7 +114,7 @@ class _PicPakSensor(SensorEntity):
 
 
 class PicPakBatterySensor(_PicPakSensor):
-    """Batterie du cadre, mesurée à son réveil (avant la charge Wi-Fi/écran)."""
+    """Batterie du cadre, mesurée à son réveil."""
 
     _attr_translation_key = "picpak_battery"
     _attr_device_class = SensorDeviceClass.BATTERY
@@ -146,21 +130,17 @@ class PicPakBatterySensor(_PicPakSensor):
     def extra_state_attributes(self) -> dict[str, object]:
         frame = self._frame
         count = len(frame.assets)
+        photo = frame.shown not in (None, LOGO, DOOR)
         return {
             "tension_mv": frame.battery_mv,
             "invite": frame.guest_name,
-            "photo": (frame.index + 1) if count and frame.index >= 0 else None,
-            "photos": count,
-            "asset_id": (
-                frame.shown if frame.shown not in ("__logo__", "__visages__") else None
-            ),
+            "etat": frame.state,
             "affichage": (
-                "visages" if frame.shown == "__visages__"
-                else "logo" if not count
-                else "logo (hors séjour)" if frame.in_stay is False
-                else "photos"
+                "visages" if frame.shown == DOOR else "photo" if photo else "logo"
             ),
-            "sejour_en_cours": frame.in_stay,
+            "photo": (frame.index + 1) if photo and frame.index >= 0 else None,
+            "photos": count,
+            "asset_id": frame.shown if photo else None,
             "cause_reveil": frame.wake,
             "prochain_reveil_s": frame.next_wake_s,
             "reveils": frame.requests,
@@ -168,7 +148,7 @@ class PicPakBatterySensor(_PicPakSensor):
 
 
 class PicPakLastSeenSensor(_PicPakSensor):
-    """Dernière connexion du cadre : sert à détecter un cadre muet."""
+    """Dernière connexion du cadre : sert à repérer un cadre muet."""
 
     _attr_translation_key = "picpak_last_seen"
     _attr_device_class = SensorDeviceClass.TIMESTAMP

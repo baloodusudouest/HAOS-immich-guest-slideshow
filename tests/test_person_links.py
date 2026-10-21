@@ -194,7 +194,11 @@ def test_link_takes_priority_over_name_search() -> None:
 
     assert api.find_calls == []  # aucune recherche par nom pour l'invité
     assert engine.photo_count == 5
-    assert [c.label for c in engine.combos][0] == "Alexia + Propriétaire 1"
+    # Ordre v2 : l'invité avec les deux propriétaires, puis avec chacun.
+    assert [c.label for c in engine.combos][:2] == [
+        "Alexia + Propriétaire 1 + Propriétaire 2",
+        "Alexia + Propriétaire 1",
+    ]
 
 
 def test_stale_link_falls_back_to_name_search() -> None:
