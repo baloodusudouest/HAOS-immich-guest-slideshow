@@ -106,7 +106,7 @@ from .slideshow import SlideshowEngine
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.IMAGE, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.IMAGE, Platform.SELECT, Platform.SENSOR]
 
 # La vue HTTP des cadres est globale (une seule par instance de HA) : elle
 # retrouve la bonne config entry grâce au jeton de l'URL.

@@ -59,6 +59,8 @@ from .const import (
     DOMAIN,
     PICPAK_CALENDAR,
     PICPAK_MODE_FACES,
+    PICPAK_MODE_PHOTOS,
+    PICPAK_MODES,
     PICPAK_URL_MAX,
     PICPAK_URL_PATH,
     SIGNAL_PICPAK_UPDATE,
@@ -282,7 +284,10 @@ class PicPakSettings:
     base_url: str
     arrival_hour: int = 9
     logo_path_2: str = ""
-    mode: str = "photos"  # pendant le séjour : « photos » ou « visages »
+    # Affichage par défaut pendant le séjour (« photos » ou « visages ») des
+    # cadres qui n'ont pas encore leur propre choix (FrameState.mode). Sert
+    # à reprendre l'ancien réglage global commun à tous les cadres (< 1.11).
+    mode: str = "photos"
 
     def logo_for_bed(self, bed: int) -> str:
         """Logo du cadre n° ``bed`` : le 2e logo pour les cadres pairs, s'il
@@ -316,6 +321,9 @@ class FrameState:
     shown: str | None = None  # asset affiché (ou LOGO)
     requests: int = 0
     in_stay: bool | None = None  # séjour en cours au dernier réveil
+    # Affichage pendant le séjour, propre au cadre : « photos » ou « visages ».
+    # ``None`` : pas encore choisi, on suit PicPakSettings.mode.
+    mode: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
@@ -454,6 +462,41 @@ class PicPakManager:
     def check_token(self, token: str | None) -> bool:
         """Comparaison à temps constant du jeton d'accès."""
         return bool(token) and hmac.compare_digest(str(token), self.token)
+
+    def frame_mode(self, key: str) -> str:
+        """Affichage du cadre ``key`` pendant le séjour : photos ou visages."""
+        frame = self.frames.get(key)
+        mode = frame.mode if frame is not None else None
+        if mode in PICPAK_MODES:
+            return mode
+        return self.settings.mode if self.settings.mode in PICPAK_MODES else (
+            PICPAK_MODE_PHOTOS
+        )
+
+    @callback
+    def async_set_frame_mode(self, key: str, mode: str) -> None:
+        """Choisit l'affichage du cadre ``key`` pendant le séjour.
+
+        Le cadre ne peut pas être réveillé à distance : il change d'affichage
+        à son prochain réveil (ou tout de suite sur un appui de son bouton).
+        L'aperçu montre dès maintenant ce qu'il affichera.
+        """
+        frame = self.frames.get(key)
+        if frame is None or mode not in PICPAK_MODES:
+            return
+        if frame.mode == mode:
+            return
+        frame.mode = mode
+        # Retour aux photos : reprendre là où on en était, sans attendre
+        # l'intervalle complet.
+        frame.force_next = mode == PICPAK_MODE_PHOTOS
+        # L'aperçu (image.picpak_…) reflète le nouveau choix au lieu du dernier
+        # tampon envoyé.
+        self._last_body.pop(key, None)
+        self._preview_png.pop(key, None)
+        self._body_rev[key] = self._body_rev.get(key, 0) + 1
+        self._schedule_save()
+        self._notify(key)
 
     def beds(self, room_id: str) -> int:
         engine = self._engines.get(room_id)
@@ -792,7 +835,7 @@ class PicPakManager:
         stay = await self.async_stay(room_id, now)
         frame.in_stay = stay.active if stay.restricted and frame.assets else None
 
-        faces_mode = self.settings.mode == PICPAK_MODE_FACES
+        faces_mode = self.frame_mode(key) == PICPAK_MODE_FACES
         if faces_mode and stay.active and frame.guest:
             # Mode « visages » : carte des invités de la chambre pendant le séjour.
             body = await self._async_faces_card(room_id, stay)
@@ -952,7 +995,7 @@ class PicPakManager:
         if cached is not None and not cached[0].active:
             asset_id = None  # hors séjour : le cadre affichera le logo
         elif (
-            self.settings.mode == PICPAK_MODE_FACES
+            self.frame_mode(key) == PICPAK_MODE_FACES
             and frame.guest
             and cached is not None
         ):

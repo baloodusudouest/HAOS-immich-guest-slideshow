@@ -99,9 +99,13 @@ CONF_PICPAK_SUBTITLE: Final = "picpak_subtitle"
 CONF_PICPAK_BASE_URL: Final = "picpak_base_url"   # URL locale de HA vue du cadre
 CONF_PICPAK_ARRIVAL_HOUR: Final = "picpak_arrival_hour"  # début des photos le jour J
 CONF_PICPAK_RESET_BUTTON: Final = "picpak_reset_button"  # fin de séjour manuelle
-CONF_PICPAK_MODE: Final = "picpak_mode"  # pendant le séjour : photos ou visages
+# Affichage pendant le séjour : réglé PAR CADRE (entité select
+# « select.picpak_<chambre>_<lit>_affichage »). L'ancienne option globale
+# (< 1.11) n'est plus proposée ; sa valeur sert de choix initial aux cadres.
+CONF_PICPAK_MODE: Final = "picpak_mode"
 PICPAK_MODE_PHOTOS: Final = "photos"
 PICPAK_MODE_FACES: Final = "visages"
+PICPAK_MODES: Final = (PICPAK_MODE_PHOTOS, PICPAK_MODE_FACES)
 
 DEFAULT_PICPAK_INTERVAL: Final = 60
 DEFAULT_PICPAK_PHOTOS: Final = 50

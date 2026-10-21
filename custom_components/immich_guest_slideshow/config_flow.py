@@ -44,7 +44,6 @@ from .const import (
     CONF_PICPAK_INTERVAL,
     CONF_PICPAK_LOGO,
     CONF_PICPAK_LOGO_2,
-    CONF_PICPAK_MODE,
     CONF_PICPAK_PHOTOS,
     CONF_PICPAK_QUIET,
     CONF_PICPAK_RESET_BUTTON,
@@ -62,7 +61,6 @@ from .const import (
     DEFAULT_PICPAK_INTERVAL,
     DEFAULT_PICPAK_LOGO,
     DEFAULT_PICPAK_LOGO_2,
-    DEFAULT_PICPAK_MODE,
     DEFAULT_PICPAK_PHOTOS,
     DEFAULT_PICPAK_QUIET,
     DEFAULT_PICPAK_RESET_BUTTON,
@@ -222,7 +220,6 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
             else:
                 self.options[CONF_PICPAK_INTERVAL] = user_input[CONF_PICPAK_INTERVAL]
                 self.options[CONF_PICPAK_PHOTOS] = user_input[CONF_PICPAK_PHOTOS]
-                self.options[CONF_PICPAK_MODE] = user_input[CONF_PICPAK_MODE]
                 self.options[CONF_PICPAK_ARRIVAL_HOUR] = user_input[
                     CONF_PICPAK_ARRIVAL_HOUR
                 ]
@@ -253,16 +250,6 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
 
         schema = vol.Schema(
             {
-                vol.Required(
-                    CONF_PICPAK_MODE,
-                    default=opts.get(CONF_PICPAK_MODE, DEFAULT_PICPAK_MODE),
-                ): SelectSelector(
-                    SelectSelectorConfig(
-                        options=["photos", "visages"],
-                        translation_key="picpak_mode",
-                        mode=SelectSelectorMode.LIST,
-                    )
-                ),
                 vol.Required(
                     CONF_PICPAK_INTERVAL,
                     default=opts.get(CONF_PICPAK_INTERVAL, DEFAULT_PICPAK_INTERVAL),
