@@ -18,6 +18,7 @@ from custom_components.immich_guest_slideshow.const import (
     CONF_API_KEY,
     CONF_PERMANENT_PERSONS,
     CONF_PICPAK_INTERVAL,
+    CONF_PICPAK_MODE,
     CONF_PICPAK_PHOTOS,
     CONF_ROOMS,
     CONF_URL,
@@ -224,9 +225,15 @@ class FakeImmich:
         n = int(asset_id.rsplit("#", 1)[1])
         return _jpeg(((n * 40) % 256, (n * 90) % 256, (n * 15) % 256))
 
+    async def async_get_person_thumbnail(self, person_id: str) -> bytes:
+        self.person_thumbs.append(person_id)
+        return _jpeg((200, 150, 120), (250, 250))
+
+    person_thumbs: list[str] = []
 
 
-def _entry() -> MockConfigEntry:
+
+def _entry(**extra: Any) -> MockConfigEntry:
     return MockConfigEntry(
         domain=DOMAIN,
         data={CONF_URL: "http://immich.test:2283", CONF_API_KEY: "k"},
@@ -240,16 +247,17 @@ def _entry() -> MockConfigEntry:
             },
             CONF_PICPAK_INTERVAL: 60,
             CONF_PICPAK_PHOTOS: 5,
+            **extra,
         },
         unique_id="http://immich.test:2283",
     )
 
 
-async def _setup(hass: HomeAssistant, guest_1: str, guest_2: str = ""):
+async def _setup(hass: HomeAssistant, guest_1: str, guest_2: str = "", **extra: Any):
     hass.config.internal_url = "http://192.168.1.29:8123"
     hass.states.async_set(HELPER_1, guest_1)
     hass.states.async_set(HELPER_2, guest_2)
-    entry = _entry()
+    entry = _entry(**extra)
     entry.add_to_hass(hass)
     patcher = patch(
         "custom_components.immich_guest_slideshow.ImmichApiClient", FakeImmich
@@ -675,3 +683,68 @@ def test_bundled_font_has_french_accents() -> None:
             # Une lettre absente est dessinée comme le glyphe « .notdef ».
             assert f.getmask(ch).getbbox() != f.getmask("￿").getbbox(), ch
     assert pr._font(20, bold=True).path == path  # noqa: SLF001
+
+
+# --------------------------------------------------------------------------- #
+# Mode « visages »
+# --------------------------------------------------------------------------- #
+def test_render_faces_one_guest_is_centred() -> None:
+    face = _jpeg((210, 160, 130), (250, 250))
+    body = pr.render_faces("Chambre d'ami", [("Corinne Jacquouton", face)], "ven. 23 → sam. 24 oct.")
+    assert len(body) == pr.FRAME_BYTES
+    img = Image.open(io.BytesIO(pr.preview_png(body))).convert("RGB")
+    bg = img.getpixel((2, 150))  # fond noir de la carte
+    # Visage au centre, bords latéraux du médaillon noirs.
+    centre = img.getpixel((200, 119))
+    assert centre != bg
+    assert img.getpixel((60, 119)) == bg
+    assert img.getpixel((340, 119)) == bg
+
+
+def test_render_faces_two_guests_side_by_side() -> None:
+    face = _jpeg((210, 160, 130), (250, 250))
+    body = pr.render_faces("Chambre d'ami", [("Corinne", face), ("Régis", face)], "23 → 24 oct.")
+    img = Image.open(io.BytesIO(pr.preview_png(body))).convert("RGB")
+    bg = img.getpixel((2, 150))  # fond noir de la carte
+    assert img.getpixel((120, 108)) != bg
+    assert img.getpixel((280, 108)) != bg
+    assert img.getpixel((200, 108)) == bg  # espace entre les deux
+
+
+def test_render_faces_without_thumbnail_uses_initials() -> None:
+    body = pr.render_faces("Chambre test", [("Zoé Martin", None)], "")
+    assert len(body) == pr.FRAME_BYTES
+    img = Image.open(io.BytesIO(pr.preview_png(body))).convert("RGB")
+    bg = img.getpixel((2, 150))  # fond noir de la carte
+    assert {img.getpixel((x, 119)) for x in range(150, 250)} - {bg}  # initiales
+
+
+async def test_faces_mode_shows_the_room_card(
+    hass: HomeAssistant, hass_client_no_auth
+) -> None:
+    FakeImmich.photos = {frozenset([PEOPLE["Alexia"], PEOPLE["Propriétaire 1"]]): 6}
+    FakeImmich.fail = set()
+    FakeImmich.person_thumbs = []
+    entry, patcher = await _setup(hass, "Alexia", "Bruno", **{CONF_PICPAK_MODE: "visages"})
+    try:
+        urls = await _urls(hass)
+        client = await hass_client_no_auth()
+        r1 = await client.get(_path(urls[1]))
+        body1 = await r1.read()
+        body2 = await (await client.get(_path(urls[2]))).read()
+        assert r1.headers["X-Next-Wake-Seconds"] == "3600"
+        assert len(body1) == pr.FRAME_BYTES
+        assert body1 == body2  # même carte sur les deux cadres
+        manager = entry.runtime_data.picpak
+        assert manager.frames["chambre_test/1"].shown == "__visages__"
+        assert set(FakeImmich.person_thumbs) == {PEOPLE["Alexia"], PEOPLE["Bruno"]}
+        await hass.async_block_till_done()
+        state = hass.states.get("sensor.picpak_chambre_test_1_batterie")
+        assert state.attributes["affichage"] == "visages"
+        assert state.attributes["asset_id"] is None
+        # Une heure plus tard : la carte ne change pas (pas de nouveau rendu)
+        again = await (await client.get(_path(urls[1]))).read()
+        assert again == body1
+    finally:
+        await hass.config_entries.async_unload(entry.entry_id)
+        patcher.stop()
