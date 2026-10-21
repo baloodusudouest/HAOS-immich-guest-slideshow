@@ -421,8 +421,13 @@ class SlideshowEngine:
         )
 
     def next_photo(self) -> CachedPhoto | None:
-        """Passe à la photo suivante (aléatoire, sans doublon immédiat)."""
+        """Passe à la photo suivante."""
         self.current = self._cache.next_photo()
+        return self.current
+
+    def previous_photo(self) -> CachedPhoto | None:
+        """Revient à la photo précédente."""
+        self.current = self._cache.previous_photo()
         return self.current
 
     @property

@@ -8,7 +8,6 @@ immédiats grâce à un historique récent.
 from __future__ import annotations
 
 import random
-from collections import deque
 from dataclasses import dataclass, field
 
 
@@ -22,11 +21,17 @@ class CachedPhoto:
 
 @dataclass
 class PhotoCache:
-    """Cache borné avec rotation aléatoire sans doublon immédiat."""
+    """Cache borné, mélangé une fois, parcouru dans l'ordre.
+
+    L'ordre est tiré au hasard à chaque remplissage, puis la rotation avance
+    (ou recule, bouton « précédente ») d'une photo à la fois : aucune photo
+    ne revient avant que toutes aient été vues, et « précédente » ramène
+    exactement la photo d'avant.
+    """
 
     max_size: int = 50
     _photos: list[CachedPhoto] = field(default_factory=list)
-    _recent: deque[str] = field(default_factory=lambda: deque(maxlen=5))
+    _pos: int = -1
 
     def __len__(self) -> int:
         return len(self._photos)
@@ -46,21 +51,26 @@ class PhotoCache:
                 unique.append(photo)
         random.shuffle(unique)
         self._photos = unique[: self.max_size]
-        self._recent.clear()
+        self._pos = -1
 
     def clear(self) -> None:
         """Vide le cache."""
         self._photos.clear()
-        self._recent.clear()
+        self._pos = -1
 
-    def next_photo(self) -> CachedPhoto | None:
-        """Retourne une photo aléatoire, en évitant les dernières affichées."""
+    def _step(self, delta: int) -> CachedPhoto | None:
         if not self._photos:
             return None
-        candidates = [p for p in self._photos if p.asset_id not in self._recent]
-        if not candidates:  # toutes récemment vues -> on repart de zéro
-            self._recent.clear()
-            candidates = self._photos
-        photo = random.choice(candidates)
-        self._recent.append(photo.asset_id)
-        return photo
+        if self._pos < 0:
+            self._pos = 0 if delta > 0 else len(self._photos) - 1
+        else:
+            self._pos = (self._pos + delta) % len(self._photos)
+        return self._photos[self._pos]
+
+    def next_photo(self) -> CachedPhoto | None:
+        """Photo suivante (après la dernière : retour à la première)."""
+        return self._step(1)
+
+    def previous_photo(self) -> CachedPhoto | None:
+        """Photo précédente."""
+        return self._step(-1)
