@@ -209,7 +209,7 @@ async def test_planned_stay_without_helper_uses_event_titles(
     )
 
 
-async def test_door_frame_free_then_welcome(
+async def test_door_frame_soon_then_welcome_then_free(
     hass: HomeAssistant, hass_client_no_auth, freezer: FrozenDateTimeFactory
 ) -> None:
     tz = dt_util.get_default_time_zone()
@@ -226,25 +226,34 @@ async def test_door_frame_free_then_welcome(
     assert urls["porte"].split("?")[0].endswith("/picpak/chambre_test/porte")
     client = await hass_client_no_auth()
 
-    # 8 h : séjour pas commencé -> logo et nom de la chambre.
-    resp = await client.get(_path(urls["porte"]))
-    assert await resp.read() == _logo("Chambre test")
-    assert int(resp.headers["X-Next-Wake-Seconds"]) == 3600
+    face = await FakeImmich().async_get_person_thumbnail("x")
+    guests = [("Carla", face), ("Bruno", face)]  # prénoms seulement
+    frame = entry.runtime_data.picpak.frames["chambre_test/porte"]
 
-    # 9 h 05 : visages et « Carla et Bruno, bienvenue dans la chambre test »
-    # (prénoms seulement).
+    # 8 h : séjour programmé -> « Bientôt dans la chambre test ».
+    resp = await client.get(_path(urls["porte"]))
+    soon = await resp.read()
+    assert soon == pr.render_door(
+        "Chambre test", guests, "ven. 23 → sam. 24 oct.", upcoming=True
+    )
+    assert frame.state == "programme" and frame.shown == "__porte__"
+    assert int(resp.headers["X-Next-Wake-Seconds"]) == 3600  # 9 h pile
+
+    # 9 h 05 : « Bienvenue dans la chambre test ».
     freezer.move_to(datetime(2026, 10, 23, 9, 5, tzinfo=tz))
     body = await (await client.get(_path(urls["porte"]))).read()
-    face = await FakeImmich().async_get_person_thumbnail("x")
-    assert body == pr.render_door(
-        "Chambre test", [("Carla", face), ("Bruno", face)], "ven. 23 → sam. 24 oct."
-    )
-    frame = entry.runtime_data.picpak.frames["chambre_test/porte"]
-    assert frame.state == "en_cours" and frame.shown == "__porte__"
+    assert body == pr.render_door("Chambre test", guests, "ven. 23 → sam. 24 oct.")
+    assert body != soon
+    assert frame.state == "en_cours"
     assert {PEOPLE["Carla Dupont"], PEOPLE["Bruno"]} <= set(FakeImmich.person_thumbs)
     # L'heure suivante : carte identique (la dalle ne se redessine pas).
     freezer.tick(3600)
     assert await (await client.get(_path(urls["porte"]))).read() == body
+
+    # Fin du séjour (dimanche 00:01), plus rien de prévu : logo et chambre.
+    freezer.move_to(datetime(2026, 10, 25, 0, 2, tzinfo=tz))
+    assert await (await client.get(_path(urls["porte"]))).read() == _logo("Chambre test")
+    assert frame.state == "libre"
 
 
 async def test_reset_button_ends_the_stay(hass: HomeAssistant, hass_client_no_auth) -> None:

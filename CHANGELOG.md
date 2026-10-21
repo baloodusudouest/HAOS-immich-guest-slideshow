@@ -23,8 +23,11 @@ chambres, entités et URL des cadres déjà flashés sont conservés.
   nocturne exclue). Un invité par cadre ; un invité seul sur deux cadres sans
   doublon ; un cadre pour deux invités : photos mélangées.
 - **Nouveau cadre de porte** (`…/picpak/<chambre>/porte`) : logo et nom de la
-  chambre hors séjour ; pendant le séjour, visages des invités,
-  « Prénom et Prénom, bienvenue dans la chambre … » et dates.
+  chambre si elle est libre ; dès qu'un séjour est programmé, « Bientôt dans
+  la chambre … » avec le visage de chaque invité dans le losange du logo
+  Petit Lecussan (à la place du « PL », mêmes bordures, la Garonne en blanc
+  faute de bleu sur la dalle), les prénoms et la date prévue ; pendant le
+  séjour, « Bienvenue dans la chambre … ».
 - Écrans texte en **or sur noir** (logo texte de secours compris).
 - Le choix « photos / visages » (réglage global, puis entités
   `select.picpak_…_affichage` de la 1.11) est supprimé : les visages sont sur

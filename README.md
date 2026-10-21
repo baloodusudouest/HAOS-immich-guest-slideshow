@@ -140,8 +140,9 @@ l'écran, recadrée sur le visage de l'invité (permission « face.read »).
 
 | Chambre | Écran |
 |---|---|
-| hors séjour | logo + nom de la chambre |
-| séjour en cours | visage de chaque invité (vignette Immich de la personne), « **Corinne et Régis, bienvenue dans la chambre d'ami** » et les dates |
+| libre | logo + nom de la chambre |
+| séjour programmé | « **Bientôt dans la chambre d'ami** », le visage de chaque invité dans le losange du logo Petit Lecussan (à la place du « PL », mêmes bordures), les prénoms dessous, la date prévue |
+| séjour en cours | la même carte avec « **Bienvenue dans la chambre d'ami** » |
 
 ### Mise en place
 
