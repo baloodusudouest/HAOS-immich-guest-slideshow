@@ -202,6 +202,12 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     ent_reg = er.async_get(hass)
     hass.config_entries.async_update_entry(entry, options=options)
 
+    # v1.11 : entités « Affichage pendant le séjour » (photos / visages) par
+    # cadre, remplacées par le cadre de porte.
+    for ent in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        if ent.domain == "select":
+            ent_reg.async_remove(ent.entity_id)
+
     for room_id, room in legacy_rooms.items():
         name = str(room.get(LEGACY_KEY_NAME) or room_id)
         helpers = list(room.get(LEGACY_KEY_HELPERS) or [])[:2]
