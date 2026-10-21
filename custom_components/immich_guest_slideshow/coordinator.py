@@ -23,6 +23,8 @@ class RoomData:
     search_label: str | None
     photo_count: int
     active: bool
+    # ``object-position`` CSS gardant visibles les visages des invités.
+    object_position: str | None = None
 
 
 class RoomCoordinator(DataUpdateCoordinator[RoomData]):
@@ -85,6 +87,9 @@ class RoomCoordinator(DataUpdateCoordinator[RoomData]):
             search_label=photo.search_label,
             photo_count=self.engine.photo_count,
             active=True,
+            object_position=await self.engine.async_object_position(
+                photo.asset_id
+            ),
         )
 
     async def async_rebuild_and_refresh(self) -> None:

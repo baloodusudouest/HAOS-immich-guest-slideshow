@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.0 — 2026-10-21
+
+- Diaporama des chambres : nouvel attribut **`object_position`** sur
+  `image.immich_<chambre>`. Utilisé en CSS (`object-fit: cover`), il garde
+  **le visage entier des invités** visible quelle que soit la taille de la
+  carte : visages des invités de la chambre (ou, à défaut, tous les visages
+  détectés), agrandis pour inclure cheveux et menton, sans jamais zoomer
+  sur la photo. Sans visage connu : `50% 30%`. Un appel Immich par photo,
+  mémorisé pour le séjour ; nécessite la permission « face.read ».
+- Le calcul des visages est mis en commun avec les cadres PicPak
+  (`framing.py`), sans changement de leur rendu.
+
 ## 1.8.3 — 2026-10-19
 
 - Correction : les accents et la flèche des légendes PicPak s'affichaient en

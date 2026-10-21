@@ -14,9 +14,11 @@ from typing import Protocol
 
 from homeassistant.core import HomeAssistant
 
+from . import framing
 from .api import (
     ImmichApiClient,
     ImmichApiError,
+    ImmichAuthError,
     extract_person_uuid,
     normalize_name,
 )
@@ -197,6 +199,12 @@ class SlideshowEngine:
         # Le diaporama et les cadres/albums sélectionnent sur le même moteur,
         # parfois en même temps (changement d'invité) : une sélection à la fois.
         self._select_lock = asyncio.Lock()
+        # Cadrage par photo (``object-position`` CSS), calculé une seule fois
+        # par photo et par séjour : vidé à chaque rebuild.
+        self._positions: dict[str, str] = {}
+        # Faux après un refus de l'API visages (clé sans « face.read ») :
+        # on n'insiste pas avant le prochain rebuild.
+        self._faces_ok = True
 
     # ------------------------------------------------------------------ #
     # Lecture des helpers
@@ -396,6 +404,8 @@ class SlideshowEngine:
         """
         self._cache.clear()
         self.current = None
+        self._positions.clear()
+        self._faces_ok = True
         self._person_ids.clear()
         self._person_names.clear()
         self._reset_searches()
@@ -652,6 +662,40 @@ class SlideshowEngine:
     def photo_count(self) -> int:
         """Nombre de photos actuellement en cache."""
         return len(self._cache)
+
+    async def async_object_position(self, asset_id: str | None) -> str:
+        """``object-position`` CSS gardant visibles les visages des invités.
+
+        Visages des invités de la chambre (tous ensemble s'ils sont sur la
+        photo), à défaut tous les visages détectés, avec une marge pour les
+        cheveux et le menton : voir :mod:`framing`. Sans visage connu (ou clé
+        API sans la permission « face.read »), position par défaut un peu
+        au-dessus du centre. Un appel Immich par photo, mémorisé.
+        """
+        if not asset_id:
+            return framing.DEFAULT_OBJECT_POSITION
+        if asset_id in self._positions:
+            return self._positions[asset_id]
+        if not self._faces_ok:
+            return framing.DEFAULT_OBJECT_POSITION
+        try:
+            faces = await self._api.async_get_faces(asset_id)
+        except ImmichApiError as err:
+            _LOGGER.debug(
+                "[%s] Visages de %s indisponibles: %s", self.room_id, asset_id, err
+            )
+            # Clé sans permission : inutile de réessayer à chaque photo.
+            # Erreur passagère : on réessaiera pour cette photo plus tard.
+            if isinstance(err, ImmichAuthError):
+                self._faces_ok = False
+            return framing.DEFAULT_OBJECT_POSITION
+        guest_ids = [await self.async_person_id(g) for g in self.get_guests()]
+        box = framing.faces_box(faces, guest_ids)
+        position = framing.object_position(
+            framing.expand_box(box) if box else None
+        )
+        self._positions[asset_id] = position
+        return position
 
     async def async_get_image_bytes(self) -> bytes | None:
         """Récupère les octets de l'image courante depuis Immich."""
