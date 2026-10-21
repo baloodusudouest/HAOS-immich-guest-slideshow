@@ -21,7 +21,10 @@ from __future__ import annotations
 import io
 import os
 from collections.abc import Sequence
+
 from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageOps
+
+from . import framing
 
 FRAME_W = 400
 FRAME_H = 300
@@ -52,7 +55,7 @@ _LW_R, _LW_G, _LW_B = 0.299, 0.587, 0.114
 # Recadrage plein cadre, centré sur les visages
 # --------------------------------------------------------------------------- #
 # Boîte normalisée (x1, y1, x2, y2), coordonnées 0..1 dans l'image source.
-Box = tuple[float, float, float, float]
+Box = framing.Box
 
 # Visée sans visage connu : un peu au-dessus du centre, là où se trouvent les
 # têtes sur la plupart des photos.
@@ -64,45 +67,9 @@ def face_box(faces: Sequence[dict], person_id: str | None) -> Box | None:
 
     Priorité au(x) visage(s) de l'invité ``person_id`` ; à défaut (invité non
     reconnu sur cette photo), tous les visages détectés. ``None`` si Immich
-    n'a détecté aucun visage exploitable.
-
-    Les boîtes d'Immich sont exprimées dans les dimensions de l'image
-    analysée (``imageWidth`` × ``imageHeight``, orientation EXIF appliquée,
-    comme l'aperçu téléchargé) : on les normalise donc par ces dimensions.
+    n'a détecté aucun visage exploitable. Voir :func:`framing.faces_box`.
     """
-    def _box(face: dict) -> Box | None:
-        try:
-            w = float(face["imageWidth"])
-            h = float(face["imageHeight"])
-            if w <= 0 or h <= 0:
-                return None
-            x1 = float(face["boundingBoxX1"]) / w
-            y1 = float(face["boundingBoxY1"]) / h
-            x2 = float(face["boundingBoxX2"]) / w
-            y2 = float(face["boundingBoxY2"]) / h
-        except (KeyError, TypeError, ValueError):
-            return None
-        x1, x2 = sorted((min(max(x1, 0.0), 1.0), min(max(x2, 0.0), 1.0)))
-        y1, y2 = sorted((min(max(y1, 0.0), 1.0), min(max(y2, 0.0), 1.0)))
-        if x2 - x1 <= 0 or y2 - y1 <= 0:
-            return None
-        return (x1, y1, x2, y2)
-
-    def _person(face: dict) -> str | None:
-        person = face.get("person")
-        return person.get("id") if isinstance(person, dict) else None
-
-    guest = [f for f in faces if person_id and _person(f) == person_id]
-    for group in (guest, list(faces)):
-        boxes = [b for b in (_box(f) for f in group) if b]
-        if boxes:
-            return (
-                min(b[0] for b in boxes),
-                min(b[1] for b in boxes),
-                max(b[2] for b in boxes),
-                max(b[3] for b in boxes),
-            )
-    return None
+    return framing.faces_box(faces, [person_id])
 
 
 def _window(start_hint: float, size: float, total: float, lo: float, hi: float) -> float:
