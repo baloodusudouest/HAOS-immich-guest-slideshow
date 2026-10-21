@@ -88,8 +88,10 @@ recherches ne sont faites qu'au besoin.
 
 `image.immich_<chambre>` affiche une photo des invités **toutes les 15 s**,
 parmi **100**, **dès que l'invité est renseigné** (avant même son arrivée).
-Appui court sur la carte : photo suivante (`immich_guest_slideshow.next`) ;
-appui long : nouvelle sélection (`immich_guest_slideshow.refresh`).
+Photo suivante / précédente : actions `immich_guest_slideshow.next` et
+`immich_guest_slideshow.previous`, en ciblant l'image du diaporama
+(`entity_id: image.immich_chambre_d_ami`) ; nouvelle sélection :
+`immich_guest_slideshow.refresh`.
 
 Attributs utiles aux cartes :
 
@@ -166,7 +168,7 @@ l'écran, recadrée sur le visage de l'invité (permission « face.read »).
 | Action | Rôle |
 |---|---|
 | `refresh` | nouvelle sélection (chambre ou toutes) |
-| `next` | photo suivante du diaporama |
+| `next` / `previous` | photo suivante / précédente du diaporama (`entity_id` de l'image ou `room`) |
 | `picpak_urls` | URL à saisir dans chaque cadre |
 | `picpak_next` | photo suivante sur les cadres de chambre (au prochain réveil) |
 | `sync_albums` | un album Immich par lit avec ses photos |

@@ -89,6 +89,7 @@ class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
         stay = data.stay if data else None
         days = stay.days if stay else None
         return {
+            "chambre": self.coordinator.engine.room_id,
             "asset_id": data.asset_id if data else None,
             "search": data.search_label if data else None,
             "photo_count": data.photo_count if data else 0,
