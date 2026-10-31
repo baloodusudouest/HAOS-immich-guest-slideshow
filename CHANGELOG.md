@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.4.0 — 2026-10-31
+
+Portraits HD de Carnet — facultatif, à activer dans Configurer → Carnet.
+
+- **Cadre de porte** : le visage de chaque invité vient du **portrait HD de
+  Carnet** (meilleure photo du contact : grande, nette, de face), découpé
+  dans la photo d'origine avec le **visage entier au milieu du losange**.
+  Avant : vignette Immich, petite (~250 px) et serrée sur le visage, coupée au
+  front par les angles du losange.
+- Invité sans portrait HD, ou Carnet injoignable : vignette Immich, comme
+  avant (nouvel essai au réveil suivant). Portraits gardés 6 h.
+- **Dashboards** : nouvel attribut `portraits` de `image.immich_<chambre>`
+  (`[{nom, url}]`) et adresse
+  `/api/immich_guest_slideshow/portrait/<chambre>/<1|2>?k=<jeton>` (jeton des
+  cadres), pour afficher le visage des invités dans une carte.
+- Nécessite Carnet 1.1.0 (`GET /ha/portrait`). Le jeton Carnet est masqué
+  dans les diagnostics.
+
 ## 2.3.1 — 2026-10-31
 
 Robustesse — aucun changement de réglage nécessaire.
