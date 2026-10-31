@@ -101,6 +101,8 @@ DOOR_SLOT: Final = "porte"
 # Portraits des invités pour les dashboards (même jeton que les cadres) ;
 # ``{index}`` = 1 ou 2, rang de l'invité renseigné.
 PORTRAIT_URL_PATH: Final = "/api/immich_guest_slideshow/portrait/{room_id}/{index}"
+# Simulation du cadre de porte avec une photo candidate (carte de réservation).
+SIMULATION_URL_PATH: Final = "/api/immich_guest_slideshow/simulation/{room_id}"
 
 PICPAK_MANUFACTURER: Final = "PicPak (firmware open-PicPak)"
 PICPAK_MODEL: Final = "PicPak 4,2″ BWRY"
@@ -118,9 +120,14 @@ SERVICE_LINK_PERSON: Final = "link_person"
 SERVICE_UNLINK_PERSON: Final = "unlink_person"
 SERVICE_PICPAK_URLS: Final = "picpak_urls"
 SERVICE_PICPAK_NEXT: Final = "picpak_next"
+SERVICE_PORTRAIT_CHOICES: Final = "portrait_choices"
+SERVICE_PORTRAIT_CHOOSE: Final = "portrait_choose"
 
 ATTR_ROOM: Final = "room"
 ATTR_NAME: Final = "name"
 ATTR_PERSON_ID: Final = "person_id"
 ATTR_BED: Final = "bed"
 ATTR_BASE_URL: Final = "base_url"
+ATTR_ASSET: Final = "asset"
+ATTR_ARRIVAL: Final = "arrivee"
+ATTR_DEPARTURE: Final = "depart"

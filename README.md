@@ -129,6 +129,17 @@ content: >-
 L'adresse contient le jeton des cadres (comme leurs URL) : tout compte qui lit
 les états de Home Assistant peut l'utiliser.
 
+### Choisir la photo d'un invité (2.5.0)
+
+`immich_guest_slideshow.portrait_choices` (avec « renvoyer la réponse ») :
+`room` (identifiant, nom, calendrier ou helper de la chambre), `name`,
+`arrivee` / `depart` facultatifs. Réponse : `person_id`, `choix_actuel`,
+`automatique` et `choix` = 3 × `{asset, image, choisi}`, où `image` est une
+simulation PNG du cadre de porte avec cette photo. Puis
+`immich_guest_slideshow.portrait_choose` (`person_id`, `asset` ; vide =
+automatique). La carte `chambre-reservation-card` 2.3 le propose après le nom
+et les dates de chaque invité.
+
 Carte avec cadrage sur les visages ([card-mod](https://github.com/thomasloven/lovelace-card-mod)) :
 
 ```yaml
