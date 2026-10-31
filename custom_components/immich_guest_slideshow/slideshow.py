@@ -214,6 +214,10 @@ class SlideshowEngine:
         # Diaporama et cadres sélectionnent sur le même moteur, parfois
         # en même temps (changement d'invité) : une sélection à la fois.
         self._select_lock = asyncio.Lock()
+        # 2.3.1 : vrai si une recherche Immich a échoué depuis le dernier
+        # _reset_searches() — la sélection est alors incomplète et ne doit
+        # pas être tenue pour définitive (nouvel essai plus tard).
+        self.incomplete = False
         # Cadrage par photo (``object-position`` CSS), vidé à chaque rebuild.
         self._positions: dict[str, str] = {}
         # Faux après un refus de l'API visages (clé sans « face.read »).
@@ -314,12 +318,16 @@ class SlideshowEngine:
             _LOGGER.warning(
                 "[%s] Recherche '%s' en échec: %s", self.room_id, " + ".join(names), err
             )
+            # 2.3.1 : un échec n'est PAS mémorisé comme « aucune photo »
+            self.incomplete = True
+            return []
         random.shuffle(assets)
         self._searches[names] = assets
         return assets
 
     def _reset_searches(self) -> None:
         self._searches = {}
+        self.incomplete = False
         self._labels = {}
         self.combos = []
 
@@ -370,6 +378,10 @@ class SlideshowEngine:
                 if group and not picked[i]:
                     alone = await self._async_select([group], size)
                     picked[i] = alone[0]
+            if self.incomplete:
+                # 2.3.1 : Immich injoignable pendant la sélection — l'appelant
+                # (cadres) ne mémorise rien et réessaie au prochain réveil.
+                raise ImmichApiError("sélection incomplète (Immich injoignable)")
             return picked
 
     # ------------------------------------------------------------------ #
@@ -414,6 +426,15 @@ class SlideshowEngine:
             if len(known) < self._min_photos and (guest,) not in self._searches:
                 known.update(await self._async_search((guest,)))
             guest_assets[guest] = known
+        if self.incomplete:
+            # 2.3.1 : pas de faux « introuvable / peu de photos » pendant une
+            # panne d'Immich — les signalements précédents sont conservés.
+            _LOGGER.warning(
+                "[%s] Diaporama incomplet (Immich injoignable) : nouvel essai "
+                "dans quelques minutes",
+                self.room_id,
+            )
+            return
         self._set_problems(self._collect_problems(guests, guest_assets))
         _LOGGER.debug(
             "[%s] Diaporama: %d photo(s) via %d recherche(s)",

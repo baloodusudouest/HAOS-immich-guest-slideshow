@@ -401,12 +401,18 @@ class PicPakManager:
             self._invalidate_preview(key)
 
     @callback
-    def async_room_changed(self, room_id: str, *, guests_changed: bool = True) -> None:
+    def async_room_changed(
+        self, room_id: str, *, guests_changed: bool = True, force: bool = False
+    ) -> None:
         """Invités, séjour ou personnes Immich modifiés : nouvelle sélection en
         arrière-plan.
 
         ``guests_changed`` : un nouvel invité met fin à la réinitialisation
         d'une chambre sans calendrier.
+        ``force`` (2.3.1) : refait la sélection même si l'empreinte du cadre
+        (invités, nombre de cadres, séjour) n'a pas changé — après une
+        liaison de personne ou un « refresh », les photos changent sans que
+        l'empreinte bouge.
         """
         room = self.rooms.get(room_id)
         if room is None:
@@ -417,7 +423,7 @@ class PicPakManager:
             self._closed_rooms.discard(room_id)
             self._schedule_save()
         self.hass.async_create_background_task(
-            self.async_ensure_room(room_id), f"{DOMAIN} picpak {room_id}"
+            self.async_ensure_room(room_id, force=force), f"{DOMAIN} picpak {room_id}"
         )
         for key in self.frames:
             if split_key(key)[0] == room_id:

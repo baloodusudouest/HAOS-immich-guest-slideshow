@@ -110,7 +110,8 @@
     },
     "error": {
       "invalid_quiet": "Format attendu : HH:MM-HH:MM, ex. 01:00-07:00",
-      "invalid_base_url": "L'URL doit commencer par http:// ou https://"
+      "invalid_base_url": "L'URL doit commencer par http:// ou https://",
+      "base_url_too_long": "L'URL complète d'un cadre dépasserait 128 caractères (limite du cadre) : raccourcissez l'adresse"
     }
   },
   "entity": {
@@ -138,7 +139,7 @@
         "step": {
           "confirm": {
             "title": "Lier {name} à une personne Immich",
-            "description": "« {name} » (chambre : {rooms}) ne correspond à personne dans Immich. Dans Immich, ouvrez la fiche de la personne et copiez son URL (http://…/people/…) ou seulement l'ID, puis collez-le ici. La liaison est mémorisée.",
+            "description": "« {name} » (chambre : {rooms}) ne correspond à personne dans Immich (ou plusieurs personnes portent exactement ce nom). Dans Immich, ouvrez la fiche de la personne et copiez son URL (http://…/people/…) ou seulement l'ID, puis collez-le ici. La liaison est mémorisée.",
             "data": {
               "person_id": "ID ou URL de la personne Immich"
             }
