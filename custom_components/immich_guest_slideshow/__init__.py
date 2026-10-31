@@ -19,10 +19,15 @@ besoin des permissions sur les albums.
 v2.4.0 (31/10/2026) : portraits HD de Carnet (option « Carnet ») pour le
 cadre de porte et l'attribut ``portraits`` des dashboards, repli sur la
 vignette Immich.
+
+v2.5.0 (31/10/2026) : choix de la photo dans la carte de réservation
+(actions ``portrait_choices`` / ``portrait_choose``, simulation du cadre de
+porte), cadrage élargi (cheveux, menton, cou).
 """
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from functools import partial
 from types import MappingProxyType
@@ -56,10 +61,13 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import slugify
 
 from .api import ImmichApiClient, ImmichApiError, extract_person_uuid, normalize_name
-from .carnet import CarnetClient
+from .carnet import CarnetClient, CarnetError
 from .const import (
+    ATTR_ARRIVAL,
+    ATTR_ASSET,
     ATTR_BASE_URL,
     ATTR_BED,
+    ATTR_DEPARTURE,
     ATTR_NAME,
     ATTR_PERSON_ID,
     ATTR_ROOM,
@@ -114,6 +122,8 @@ from .const import (
     SERVICE_NEXT,
     SERVICE_PICPAK_NEXT,
     SERVICE_PICPAK_URLS,
+    SERVICE_PORTRAIT_CHOICES,
+    SERVICE_PORTRAIT_CHOOSE,
     SERVICE_PREVIOUS,
     SERVICE_REFRESH,
     SERVICE_UNLINK_PERSON,
@@ -121,11 +131,17 @@ from .const import (
 )
 from .coordinator import RoomCoordinator
 from .person_links import PersonLinks
-from .picpak import PicPakFrameView, PicPakManager, PicPakPortraitView, PicPakSettings
+from .picpak import (
+    PicPakFrameView,
+    PicPakManager,
+    PicPakPortraitView,
+    PicPakSettings,
+    PicPakSimulationView,
+)
 from .problems import ProblemReporter
 from .room import RoomConfig, RoomRuntime
 from .slideshow import SlideshowEngine
-from .stay import StayTracker, parse_quiet
+from .stay import StayTracker, format_stay, parse_quiet
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -364,6 +380,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
     if not hass.data.get(_PICPAK_VIEW_KEY):
         hass.http.register_view(PicPakFrameView())
         hass.http.register_view(PicPakPortraitView())
+        hass.http.register_view(PicPakSimulationView())
         hass.data[_PICPAK_VIEW_KEY] = True
 
     entry.runtime_data = runtime
@@ -516,8 +533,82 @@ def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) ->
         slot = call.data.get(ATTR_BED)
         return {"frames": picpak.request_next(room_id, str(slot) if slot else None)}
 
+    def _room_by_ref(ref: str) -> RoomRuntime:
+        """Chambre désignée par son identifiant, son nom, son calendrier ou
+        l'un de ses helpers d'invités (la carte de réservation connaît le
+        calendrier et les helpers, pas l'identifiant interne)."""
+        value = (ref or "").strip()
+        for room_id, room in runtime.rooms.items():
+            config = room.config
+            if value in (room_id, config.name, config.calendar) or value in config.helpers:
+                return room
+            if slugify(value) == room_id:
+                return room
+        raise ServiceValidationError(
+            f"Chambre inconnue : {ref} (chambres : {', '.join(runtime.rooms)})"
+        )
+
+    async def _person_of(room: RoomRuntime, name: str) -> str:
+        person_id = await room.engine.async_person_id(normalize_name(name))
+        if not person_id:
+            raise ServiceValidationError(
+                f"« {name} » n'est pas une personne Immich connue (voir Réparations)"
+            )
+        return person_id
+
+    async def _handle_portrait_choices(call: ServiceCall) -> ServiceResponse:
+        room = _room_by_ref(call.data[ATTR_ROOM])
+        name = normalize_name(call.data[ATTR_NAME])
+        name = re.sub(r"\s*\(.*$", "", name).strip()  # « Nom (dates) » accepté
+        person_id = await _person_of(room, name)
+        arrival, departure = call.data.get(ATTR_ARRIVAL), call.data.get(ATTR_DEPARTURE)
+        dates = format_stay(arrival, departure or arrival) if arrival else ""
+        try:
+            return await picpak.async_portrait_choices(
+                room.config.room_id, person_id, room.engine.display_name(name) or name, dates
+            )
+        except CarnetError as err:
+            raise HomeAssistantError(f"Carnet : {err}") from err
+
+    async def _handle_portrait_choose(call: ServiceCall) -> None:
+        person_id = extract_person_uuid(call.data.get(ATTR_PERSON_ID) or "")
+        if person_id is None:
+            if not call.data.get(ATTR_ROOM) or not call.data.get(ATTR_NAME):
+                raise ServiceValidationError("Indiquez person_id, ou room et name")
+            room = _room_by_ref(call.data[ATTR_ROOM])
+            name = re.sub(r"\s*\(.*$", "", normalize_name(call.data[ATTR_NAME])).strip()
+            person_id = await _person_of(room, name)
+        await picpak.async_choose_portrait(person_id, call.data.get(ATTR_ASSET) or None)
+
     room_schema = vol.Schema(
         {vol.Optional(ATTR_ROOM): cv.string, vol.Optional("entity_id"): cv.entity_ids}
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_PORTRAIT_CHOICES,
+        _handle_portrait_choices,
+        schema=vol.Schema(
+            {
+                vol.Required(ATTR_ROOM): cv.string,
+                vol.Required(ATTR_NAME): cv.string,
+                vol.Optional(ATTR_ARRIVAL): cv.date,
+                vol.Optional(ATTR_DEPARTURE): cv.date,
+            }
+        ),
+        supports_response=SupportsResponse.ONLY,
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_PORTRAIT_CHOOSE,
+        _handle_portrait_choose,
+        schema=vol.Schema(
+            {
+                vol.Optional(ATTR_PERSON_ID): cv.string,
+                vol.Optional(ATTR_ROOM): cv.string,
+                vol.Optional(ATTR_NAME): cv.string,
+                vol.Optional(ATTR_ASSET): vol.Any(None, cv.string),
+            }
+        ),
     )
     hass.services.async_register(DOMAIN, SERVICE_REFRESH, _handle_refresh, schema=room_schema)
     hass.services.async_register(DOMAIN, SERVICE_NEXT, _handle_next, schema=room_schema)
@@ -589,6 +680,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> b
         SERVICE_UNLINK_PERSON,
         SERVICE_PICPAK_URLS,
         SERVICE_PICPAK_NEXT,
+        SERVICE_PORTRAIT_CHOICES,
+        SERVICE_PORTRAIT_CHOOSE,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

@@ -453,8 +453,10 @@ def render_logo(
 # dans un losange de diagonale S si w + h <= S. Côté du carré découpé autour du
 # visage = (w + h) × FACE_MARGIN, pour garder front, cheveux et menton ; le
 # centre est remonté d'une fraction de la hauteur du visage (les cheveux).
-FACE_MARGIN = 1.3
-FACE_LIFT = 0.1
+# 2.5.0 : marge élargie (le cadre Immich du visage s'arrête aux sourcils et
+# au menton) pour garder cheveux, menton et cou.
+FACE_MARGIN = 1.65
+FACE_LIFT = 0.15
 
 
 def face_crop(width: int, height: int, box: Sequence[float]) -> tuple[int, int, int, int]:
