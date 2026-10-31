@@ -6,8 +6,10 @@ priorité et alimente :
 
 - le **diaporama** des dashboards (jusqu'à 100 photos, une toutes les 15 s) ;
 - les **cadres PicPak** de la chambre (une sélection par cadre, sans doublon
-  entre les cadres) ;
-- les **albums Immich** par lit (service ``sync_albums``).
+  entre les cadres).
+
+v2.3.0 : les albums Immich par lit (service ``sync_albums``) sont supprimés —
+les cadres flashés open-PicPak reçoivent leurs images directement.
 
 Ordre de priorité des photos d'un invité (propriétaires = Julien et Yves) :
 
@@ -38,7 +40,7 @@ from .api import (
     normalize_name,
 )
 from .cache import CachedPhoto, PhotoCache
-from .const import ALBUM_PREFIX, DEFAULT_MIN_PHOTOS, MAX_ASSETS_PER_SEARCH
+from .const import DEFAULT_MIN_PHOTOS, MAX_ASSETS_PER_SEARCH
 from .person_links import (
     KIND_FEW_PHOTOS,
     KIND_MISSING_HELPER,
@@ -209,7 +211,7 @@ class SlideshowEngine:
         self.combos: list[SearchCombo] = []
         self._searches: dict[tuple[str, ...], list[str]] = {}
         self._labels: dict[str, str] = {}
-        # Diaporama, cadres et albums sélectionnent sur le même moteur, parfois
+        # Diaporama et cadres sélectionnent sur le même moteur, parfois
         # en même temps (changement d'invité) : une sélection à la fois.
         self._select_lock = asyncio.Lock()
         # Cadrage par photo (``object-position`` CSS), vidé à chaque rebuild.
@@ -520,79 +522,3 @@ class SlideshowEngine:
         if self._reporter is not None:
             self._reporter.async_update(self.room_id, self.room_name, self.problems)
 
-    # ------------------------------------------------------------------ #
-    # Albums Immich par lit (service sync_albums)
-    # ------------------------------------------------------------------ #
-    def _album_base_name(self, index: int) -> str:
-        """Préfixe stable, qui retrouve l'album malgré le renommage."""
-        return f"{ALBUM_PREFIX} {self.room_name} {index + 1}"
-
-    def _album_name(self, index: int, guest: str | None) -> str:
-        """« PicPak Chambre d'ami 1 — Alice »."""
-        base = self._album_base_name(index)
-        return f"{base} — {self._person_names.get(guest, guest)}" if guest else base
-
-    async def _async_upsert_album(
-        self, index: int, guest: str | None, asset_ids: list[str]
-    ) -> dict:
-        """Crée ou met à jour l'album du lit ``index`` avec exactement ``asset_ids``."""
-        base = self._album_base_name(index)
-        wanted_name = self._album_name(index, guest)
-        album_id: str | None = None
-        try:
-            for album in await self._api.async_list_albums():
-                if str(album.get("albumName", "")).startswith(base):
-                    album_id = album.get("id")
-                    break
-        except ImmichApiError as err:
-            _LOGGER.warning("[%s] Liste des albums en échec: %s", self.room_id, err)
-            return {"bed": index + 1, "guest": guest, "ok": False, "photos": 0}
-        try:
-            if album_id is None:
-                album_id = await self._api.async_create_album(wanted_name, asset_ids)
-            else:
-                # Retirer AVANT d'ajouter : un téléchargement lancé entre les
-                # deux ne récupère jamais l'ancien et le nouveau contenu.
-                current = await self._api.async_album_asset_ids(album_id)
-                wanted = set(asset_ids)
-                await self._api.async_remove_album_assets(
-                    album_id, [a for a in current if a not in wanted]
-                )
-                have = set(current)
-                await self._api.async_add_album_assets(
-                    album_id, [a for a in asset_ids if a not in have]
-                )
-                await self._api.async_rename_album(album_id, wanted_name)
-        except ImmichApiError as err:
-            _LOGGER.error(
-                "[%s] Synchronisation de l'album '%s' en échec: %s",
-                self.room_id,
-                wanted_name,
-                err,
-            )
-            return {"bed": index + 1, "guest": guest, "ok": False, "photos": 0}
-        return {
-            "bed": index + 1,
-            "guest": guest,
-            "album": wanted_name,
-            "album_id": album_id,
-            "photos": len(asset_ids),
-            "ok": True,
-        }
-
-    async def async_sync_albums(self, size: int) -> list[dict]:
-        """Un album Immich par lit occupé (même répartition que les cadres)."""
-        beds = self.get_guests_by_bed()
-        occupied = [g for g in beds if g]
-        if not occupied:
-            return []
-        distinct = list(dict.fromkeys(occupied))
-        groups = [
-            [distinct[0]] if len(distinct) == 1 else ([g] if g else []) for g in beds
-        ]
-        playlists = await self.async_frame_playlists(groups, size)
-        results: list[dict] = []
-        for index, (group, assets) in enumerate(zip(groups, playlists, strict=True)):
-            if group:
-                results.append(await self._async_upsert_album(index, group[0], assets))
-        return results

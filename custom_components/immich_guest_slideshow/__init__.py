@@ -9,6 +9,12 @@ et services — qui regroupe :
 
 Voir :mod:`.slideshow` (choix des photos), :mod:`.stay` (séjours d'après le
 calendrier) et :mod:`.picpak` (cadres e-ink).
+
+v2.3.0 (31/10/2026) : suppression du service ``sync_albums`` et des albums
+Immich par lit. Ils servaient au circuit manuel (téléchargement de l'album
+puis envoi par l'app PicPak) ; tous les cadres sont désormais flashés
+open-PicPak et reçoivent leurs images directement. La clé API n'a plus
+besoin des permissions sur les albums.
 """
 from __future__ import annotations
 
@@ -52,7 +58,6 @@ from .const import (
     ATTR_NAME,
     ATTR_PERSON_ID,
     ATTR_ROOM,
-    ATTR_SIZE,
     CONF_API_KEY,
     CONF_ARRIVAL_HOUR,
     CONF_CACHE_SIZE,
@@ -70,7 +75,6 @@ from .const import (
     CONF_PICPAK_TITLE,
     CONF_REBUILD_HOURS,
     CONF_URL,
-    DEFAULT_ALBUM_SIZE,
     DEFAULT_ARRIVAL_HOUR,
     DEFAULT_CACHE_SIZE,
     DEFAULT_INTERVAL,
@@ -92,7 +96,6 @@ from .const import (
     LEGACY_KEY_NAME,
     LEGACY_PICPAK_ARRIVAL_HOUR,
     LEGACY_PICPAK_MODE,
-    MAX_ALBUM_SIZE,
     MAX_ROOM_FRAMES,
     ROOM_CALENDAR,
     ROOM_DOOR_FRAME,
@@ -106,7 +109,6 @@ from .const import (
     SERVICE_PICPAK_URLS,
     SERVICE_PREVIOUS,
     SERVICE_REFRESH,
-    SERVICE_SYNC_ALBUMS,
     SERVICE_UNLINK_PERSON,
     SUBENTRY_ROOM,
 )
@@ -462,13 +464,6 @@ def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) ->
         for room in _rooms(call):
             await room.coordinator.async_step(-1)
 
-    async def _handle_sync_albums(call: ServiceCall) -> ServiceResponse:
-        size = int(call.data.get(ATTR_SIZE, DEFAULT_ALBUM_SIZE))
-        albums: list[dict] = []
-        for room in _rooms(call):
-            albums.extend(await room.engine.async_sync_albums(size))
-        return {"albums": albums}
-
     async def _handle_link_person(call: ServiceCall) -> None:
         name = normalize_name(call.data[ATTR_NAME])
         person_id = extract_person_uuid(call.data[ATTR_PERSON_ID])
@@ -510,20 +505,6 @@ def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) ->
     hass.services.async_register(DOMAIN, SERVICE_NEXT, _handle_next, schema=room_schema)
     hass.services.async_register(
         DOMAIN, SERVICE_PREVIOUS, _handle_previous, schema=room_schema
-    )
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_SYNC_ALBUMS,
-        _handle_sync_albums,
-        schema=vol.Schema(
-            {
-                vol.Optional(ATTR_ROOM): cv.string,
-                vol.Optional(ATTR_SIZE, default=DEFAULT_ALBUM_SIZE): vol.All(
-                    vol.Coerce(int), vol.Range(min=1, max=MAX_ALBUM_SIZE)
-                ),
-            }
-        ),
-        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,
@@ -586,7 +567,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> b
         SERVICE_REFRESH,
         SERVICE_NEXT,
         SERVICE_PREVIOUS,
-        SERVICE_SYNC_ALBUMS,
         SERVICE_LINK_PERSON,
         SERVICE_UNLINK_PERSON,
         SERVICE_PICPAK_URLS,
