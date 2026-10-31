@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to Immich",
-        "description": "Enter your Immich server URL and API key (read access to people, assets and faces; albums if you use album sync). Then add your rooms with \"Add room\".",
+        "description": "Enter your Immich server URL and API key (read access to people, assets and faces). Then add your rooms with \"Add room\".",
         "data": {
           "url": "Immich URL",
           "api_key": "API key"

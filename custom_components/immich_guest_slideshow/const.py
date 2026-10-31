@@ -97,19 +97,11 @@ PICPAK_MODEL: Final = "PicPak 4,2″ BWRY"
 SIGNAL_PICPAK_UPDATE: Final = "immich_guest_slideshow_picpak_{}_{}"
 
 # --------------------------------------------------------------------------- #
-# Albums Immich par lit (service sync_albums)
-# --------------------------------------------------------------------------- #
-ALBUM_PREFIX: Final = "PicPak"
-DEFAULT_ALBUM_SIZE: Final = 50
-MAX_ALBUM_SIZE: Final = 500
-
-# --------------------------------------------------------------------------- #
 # Services
 # --------------------------------------------------------------------------- #
 SERVICE_REFRESH: Final = "refresh"
 SERVICE_NEXT: Final = "next"
 SERVICE_PREVIOUS: Final = "previous"
-SERVICE_SYNC_ALBUMS: Final = "sync_albums"
 SERVICE_LINK_PERSON: Final = "link_person"
 SERVICE_UNLINK_PERSON: Final = "unlink_person"
 SERVICE_PICPAK_URLS: Final = "picpak_urls"
@@ -118,6 +110,5 @@ SERVICE_PICPAK_NEXT: Final = "picpak_next"
 ATTR_ROOM: Final = "room"
 ATTR_NAME: Final = "name"
 ATTR_PERSON_ID: Final = "person_id"
-ATTR_SIZE: Final = "size"
 ATTR_BED: Final = "bed"
 ATTR_BASE_URL: Final = "base_url"

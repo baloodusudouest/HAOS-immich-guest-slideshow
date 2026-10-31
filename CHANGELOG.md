@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.3.0 — 2026-10-31
+
+- **Suppression de l'action `sync_albums`** et des albums Immich par lit
+  (« PicPak <chambre> <lit> — <invité> »). Ils servaient au circuit manuel :
+  télécharger l'album depuis l'app Immich puis l'envoyer au cadre avec l'app
+  PicPak. Les cadres flashés open-PicPak reçoivent leurs images directement,
+  les albums n'avaient plus d'usage.
+- La clé API n'a plus besoin des permissions sur les albums.
+- Les albums déjà créés ne sont pas touchés : les supprimer à la main dans
+  Immich si besoin (les photos restent intactes). Retirer aussi toute
+  automatisation ou tout script qui appelait `immich_guest_slideshow.sync_albums`.
+
 ## 2.2.0 — 2026-10-21
 
 - Diaporama des dashboards : nouvelle action **`previous`** (photo
