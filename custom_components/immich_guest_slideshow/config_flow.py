@@ -72,6 +72,8 @@ from .const import (
     MAX_FRAME_PHOTOS,
     MAX_GUESTS,
     MAX_ROOM_FRAMES,
+    PICPAK_URL_MAX,
+    PICPAK_URL_PATH,
     ROOM_CALENDAR,
     ROOM_DOOR_FRAME,
     ROOM_FRAMES,
@@ -210,6 +212,29 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
         )
         return self.async_show_form(step_id="general", data_schema=vol.Schema(fields))
 
+    def _longest_frame_url(self, base_url: str) -> int:
+        """Longueur de la plus longue URL de cadre avec cette base (2.3.1).
+
+        Jeton : celui de l'entrée chargée s'il existe, sinon la longueur d'un
+        jeton ``secrets.token_urlsafe(16)`` (22 caractères).
+        """
+        token_len = 22
+        runtime = getattr(self.config_entry, "runtime_data", None)
+        picpak = getattr(runtime, "picpak", None)
+        if picpak is not None and getattr(picpak, "token", ""):
+            token_len = len(picpak.token)
+        room_ids = [
+            sub.data.get(ROOM_ID) or slugify(sub.data.get(ROOM_NAME, ""))
+            for sub in self.config_entry.subentries.values()
+            if sub.subentry_type == SUBENTRY_ROOM
+        ] or ["chambre"]
+        longest_path = max(
+            len(PICPAK_URL_PATH.format(room_id=r, slot=s))
+            for r in room_ids
+            for s in ("1", "2", "porte")
+        )
+        return len(base_url) + longest_path + len("?k=") + token_len
+
     async def async_step_picpak(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -223,6 +248,10 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
                 errors[CONF_PICPAK_QUIET] = "invalid_quiet"
             elif base_url and not base_url.startswith(("http://", "https://")):
                 errors[CONF_PICPAK_BASE_URL] = "invalid_base_url"
+            elif base_url and self._longest_frame_url(base_url) > PICPAK_URL_MAX:
+                # 2.3.1 : le firmware du cadre n'accepte pas plus de 128
+                # caractères d'URL — refus ici plutôt que découvert après coup
+                errors[CONF_PICPAK_BASE_URL] = "base_url_too_long"
             else:
                 opts[CONF_PICPAK_INTERVAL] = int(user_input[CONF_PICPAK_INTERVAL])
                 opts[CONF_PICPAK_PHOTOS] = int(user_input[CONF_PICPAK_PHOTOS])
