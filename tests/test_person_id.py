@@ -140,14 +140,6 @@ def test_unknown_uuid_yields_no_photo() -> None:
     assert engine.photo_count == 0
 
 
-def test_album_name_uses_person_name() -> None:
-    api = FakeApi()
-    engine = _engine(api, ALEXIA, [OWNER_ID])
-    asyncio.run(engine.async_rebuild())
-
-    assert engine._album_name(0, ALEXIA).endswith("— Alexia")
-
-
 class _Session:
     """Session aiohttp factice renvoyant une seule réponse."""
 

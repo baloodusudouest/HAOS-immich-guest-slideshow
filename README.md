@@ -17,7 +17,7 @@ services → Immich Guest Slideshow) qui regroupe :
    (catégorie *Intégration*), installer **Immich Guest Slideshow**, redémarrer.
 2. Paramètres → Appareils et services → **Ajouter une intégration** → Immich
    Guest Slideshow : URL d'Immich et **clé API** (permissions de lecture des
-   personnes, photos et visages ; albums si vous utilisez `sync_albums`).
+   personnes, photos et visages).
 3. Sur l'intégration, **Ajouter une chambre** pour chaque chambre.
 
 Prérequis : Home Assistant 2025.6 ou plus récent (testé 2026.10), Immich avec
@@ -171,7 +171,6 @@ l'écran, recadrée sur le visage de l'invité (permission « face.read »).
 | `next` / `previous` | photo suivante / précédente du diaporama (`entity_id` de l'image ou `room`) |
 | `picpak_urls` | URL à saisir dans chaque cadre |
 | `picpak_next` | photo suivante sur les cadres de chambre (au prochain réveil) |
-| `sync_albums` | un album Immich par lit avec ses photos |
 | `link_person` / `unlink_person` | lier un nom à l'ID d'une personne Immich |
 
 ## Personne introuvable ou peu de photos
