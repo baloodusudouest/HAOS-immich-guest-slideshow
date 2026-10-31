@@ -85,12 +85,43 @@ class CarnetClient:
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise CarnetError(str(err) or type(err).__name__) from err
 
-    async def async_get_portrait(self, person_id: str) -> tuple[bytes, FaceBox | None] | None:
-        """Portrait HD de la personne Immich, ``None`` si Carnet n'en a pas."""
+    async def async_get_candidates(self, person_id: str, count: int = 3) -> tuple[list[str], str | None]:
+        """Meilleurs candidats Photos HD (identifiants d'assets) et portrait
+        actuel de Carnet ; listes vides si la personne n'est pas liée."""
+        try:
+            async with self._session.get(
+                f"{self.url}/ha/portraits/candidats",
+                params={"immich": person_id, "nombre": str(count)},
+                headers=self._headers,
+                timeout=TIMEOUT,
+            ) as resp:
+                if resp.status in (401, 503):
+                    raise CarnetAuthError(f"HTTP {resp.status}")
+                if resp.status == 404:
+                    raise CarnetError("Carnet trop ancien (1.2.0 requis pour les candidats)")
+                if resp.status != 200:
+                    raise CarnetError(f"HTTP {resp.status}")
+                data = await resp.json()
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            raise CarnetError(str(err) or type(err).__name__) from err
+        assets = [
+            str(c["asset"]) for c in (data.get("candidats") or []) if isinstance(c, dict) and c.get("asset")
+        ]
+        actuel = data.get("actuel")
+        return assets[:count], (str(actuel) if actuel else None)
+
+    async def async_get_portrait(
+        self, person_id: str, asset: str | None = None
+    ) -> tuple[bytes, FaceBox | None] | None:
+        """Portrait HD de la personne Immich (ou d'un candidat précis),
+        ``None`` si Carnet n'en a pas."""
+        params = {"immich": person_id, "cadre": "centre"}
+        if asset:
+            params["asset"] = asset
         try:
             async with self._session.get(
                 f"{self.url}/ha/portrait",
-                params={"immich": person_id, "cadre": "centre"},
+                params=params,
                 headers=self._headers,
                 timeout=TIMEOUT,
             ) as resp:

@@ -145,3 +145,71 @@ picpak_next:
           min: 1
           max: 2
           mode: box
+
+portrait_choices:
+  name: "Portrait : photos proposées"
+  description: >-
+    Les 3 meilleures photos de Carnet (Photos HD) pour un invité, chacune
+    avec l'adresse d'une simulation du cadre PicPak de la porte, et le choix
+    actuel. Utilisé par la carte de réservation (Carnet doit être configuré).
+  fields:
+    room:
+      name: Chambre
+      description: Identifiant, nom, calendrier ou helper d'invité de la chambre.
+      required: true
+      example: calendar.chambre_ami
+      selector:
+        text:
+    name:
+      name: Invité
+      description: Nom de l'invité (nom Immich, UUID ou « Nom (dates) »).
+      required: true
+      example: Paul Martin
+      selector:
+        text:
+    arrivee:
+      name: Arrivée
+      description: Premier jour du séjour (pour la date de la simulation).
+      required: false
+      example: "2026-10-31"
+      selector:
+        date:
+    depart:
+      name: Départ
+      description: Dernier jour du séjour.
+      required: false
+      example: "2026-11-01"
+      selector:
+        date:
+
+portrait_choose:
+  name: "Portrait : choisir la photo des cadres"
+  description: >-
+    Mémorise la photo (candidat Photos HD de Carnet) affichée pour cet invité
+    sur les cadres PicPak et dans l'attribut portraits. Sans photo :
+    retour au portrait automatique. Contact iPhone et Immich inchangés.
+  fields:
+    person_id:
+      name: Personne Immich
+      description: UUID de la personne (renvoyé par portrait_choices). Sinon room + name.
+      required: false
+      selector:
+        text:
+    room:
+      name: Chambre
+      description: Identifiant, nom, calendrier ou helper d'invité de la chambre.
+      required: false
+      selector:
+        text:
+    name:
+      name: Invité
+      description: Nom de l'invité.
+      required: false
+      selector:
+        text:
+    asset:
+      name: Photo
+      description: Identifiant de la photo choisie ; vide = automatique.
+      required: false
+      selector:
+        text:

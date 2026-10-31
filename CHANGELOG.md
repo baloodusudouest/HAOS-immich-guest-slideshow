@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.5.0 — 2026-10-31
+
+Choix de la photo du cadre de porte depuis la carte de réservation.
+
+- Nouvelle action **`portrait_choices`** (room, name, arrivee, depart ;
+  réponse) : les 3 meilleures photos de Carnet (Photos HD) pour l'invité,
+  chacune avec l'adresse d'une **simulation du cadre de porte**
+  (`/api/immich_guest_slideshow/simulation/<chambre>?k=…`, PNG aux vraies
+  couleurs), et le choix actuel. `room` accepte l'identifiant, le nom, le
+  calendrier ou un helper d'invité de la chambre.
+- Nouvelle action **`portrait_choose`** (person_id, ou room + name ; asset,
+  vide = automatique) : la photo choisie sert au cadre de porte et à
+  l'attribut `portraits`, mémorisée (survit aux redémarrages). Elle ne
+  change ni la photo du contact ni Immich.
+- **Cadrage élargi** dans le losange : marge 1,65 × (largeur + hauteur du
+  visage), centre remonté de 0,15 × hauteur — cheveux, menton et cou ne sont
+  plus coupés.
+- Utilisé par `chambre-reservation-card` 2.3. Nécessite Carnet 1.2.0
+  (`/ha/portraits/candidats`, `/ha/portrait?asset=`).
+
 ## 2.4.0 — 2026-10-31
 
 Portraits HD de Carnet — facultatif, à activer dans Configurer → Carnet.

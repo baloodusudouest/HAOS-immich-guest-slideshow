@@ -42,6 +42,7 @@ import hmac
 import logging
 import os
 import secrets
+from urllib.parse import urlencode
 from dataclasses import dataclass, field
 from datetime import datetime, time
 from typing import TYPE_CHECKING, Any
@@ -68,6 +69,7 @@ from .const import (
     PICPAK_URL_PATH,
     PORTRAIT_URL_PATH,
     SIGNAL_PICPAK_UPDATE,
+    SIMULATION_URL_PATH,
 )
 from .slideshow import first_name, frames_guests
 from .stay import (
@@ -261,6 +263,10 @@ class PicPakManager:
         self._door_cards: dict[str, tuple[tuple, bytes]] = {}
         # Portraits : person_id -> (instant de lecture, portrait).
         self._portraits: dict[str, tuple[datetime, Portrait]] = {}
+        # Photo choisie dans la carte de réservation : person_id -> asset
+        # (candidat Photos HD de Carnet), pour les cadres seulement.
+        self.portrait_choices: dict[str, str] = {}
+        self._simulations: dict[tuple, bytes] = {}
         self._carnet_down_logged = False
 
     # ------------------------------------------------------------------ #
@@ -274,6 +280,9 @@ class PicPakManager:
         self.closed_at = dt_util.parse_datetime(closed) if closed else None
         self._closed_rooms = set(data.get("closed_rooms") or [])
         self._stored_frames = dict(data.get("frames") or {})
+        self.portrait_choices = {
+            str(k): str(v) for k, v in (data.get("portrait_choices") or {}).items() if v
+        }
         if not data.get("token"):
             self._schedule_save()
 
@@ -330,6 +339,7 @@ class PicPakManager:
             "closed_at": self.closed_at.isoformat() if self.closed_at else None,
             "closed_rooms": sorted(self._closed_rooms),
             "frames": frames,
+            "portrait_choices": dict(self.portrait_choices),
         }
 
     @callback
@@ -679,20 +689,40 @@ class PicPakManager:
         return self._logos[cache_key]
 
     async def async_portrait(self, person_id: str | None) -> Portrait | None:
-        """Visage d'une personne : portrait HD de Carnet s'il existe, sinon
-        vignette Immich. Gardé 6 h ; une panne n'est pas mémorisée (nouvel
-        essai au prochain réveil)."""
+        """Visage d'une personne : la photo choisie dans la carte de
+        réservation, sinon le portrait HD de Carnet, sinon la vignette Immich.
+        Gardé 6 h ; une panne n'est pas mémorisée (nouvel essai au prochain
+        réveil)."""
         if not person_id:
             return None
         now = dt_util.utcnow()
         cached = self._portraits.get(person_id)
         if cached and (now - cached[0]).total_seconds() < PORTRAIT_TTL_S:
             return cached[1]
+        portrait, carnet_ok = await self._async_fetch_portrait(
+            person_id, self.portrait_choices.get(person_id)
+        )
+        if portrait is None:
+            return cached[1] if cached else None
+        if carnet_ok:
+            self._portraits[person_id] = (now, portrait)
+        return portrait
+
+    async def _async_fetch_portrait(
+        self, person_id: str, asset: str | None, *, fallback: bool = True
+    ) -> tuple[Portrait | None, bool]:
+        """(portrait, Carnet a répondu). ``asset`` : candidat précis ; s'il
+        n'est plus proposé par Carnet, portrait par défaut. ``fallback`` faux :
+        pas de repli (simulation d'un candidat)."""
         portrait: Portrait | None = None
         carnet_ok = True
         if self._carnet is not None:
             try:
-                found = await self._carnet.async_get_portrait(person_id)
+                found = None
+                if asset:
+                    found = await self._carnet.async_get_portrait(person_id, asset)
+                if found is None and (fallback or not asset):
+                    found = await self._carnet.async_get_portrait(person_id)
             except CarnetError as err:
                 carnet_ok = False
                 if not self._carnet_down_logged:
@@ -704,18 +734,78 @@ class PicPakManager:
                 self._carnet_down_logged = False
                 if found is not None:
                     portrait = Portrait(found[0], found[1], "carnet")
-        if portrait is None:
+        if portrait is None and (fallback or not asset):
             try:
                 thumb = await self._api.async_get_person_thumbnail(person_id)
             except ImmichApiError as err:
                 _LOGGER.debug("PicPak : vignette de %s indisponible: %s", person_id, err)
-                return cached[1] if cached else None
-            if not thumb:
-                return cached[1] if cached else None
-            portrait = Portrait(thumb, None, "immich")
-        if carnet_ok:
-            self._portraits[person_id] = (now, portrait)
-        return portrait
+                return None, carnet_ok
+            if thumb:
+                portrait = Portrait(thumb, None, "immich")
+        return portrait, carnet_ok
+
+    # ------------------------------------------------------------------ #
+    # Choix de la photo (carte de réservation)
+    # ------------------------------------------------------------------ #
+    async def async_portrait_choices(
+        self, room_id: str, person_id: str, name: str, dates: str
+    ) -> dict[str, Any]:
+        """Les 3 meilleurs candidats Photos HD de Carnet, chacun avec l'adresse
+        d'une simulation du cadre de porte, et le choix actuel."""
+        if self._carnet is None:
+            raise CarnetError("Carnet n'est pas configuré (Configurer → Carnet)")
+        assets, _ = await self._carnet.async_get_candidates(person_id, 3)
+        chosen = self.portrait_choices.get(person_id)
+
+        def url(asset: str | None) -> str:
+            query = {"k": self.token, "p": person_id, "n": first_name(name) or name, "d": dates}
+            if asset:
+                query["a"] = asset
+            return f"{SIMULATION_URL_PATH.format(room_id=room_id)}?{urlencode(query)}"
+
+        return {
+            "person_id": person_id,
+            "nom": name,
+            "choix_actuel": chosen if chosen in assets else None,
+            "automatique": url(None),
+            "choix": [{"asset": a, "image": url(a), "choisi": a == chosen} for a in assets],
+        }
+
+    async def async_choose_portrait(self, person_id: str, asset: str | None) -> None:
+        """Mémorise (ou annule, ``asset`` vide) la photo choisie pour les cadres."""
+        if asset:
+            self.portrait_choices[person_id] = asset
+        else:
+            self.portrait_choices.pop(person_id, None)
+        self._portraits.pop(person_id, None)
+        self._door_cards.clear()  # redessinées au prochain réveil
+        self._schedule_save()
+
+    async def async_simulation(
+        self, room_id: str, person_id: str, asset: str | None, name: str, dates: str
+    ) -> bytes | None:
+        """PNG du cadre de porte (« Bientôt dans la chambre … ») avec cette photo."""
+        room = self.rooms.get(room_id)
+        if room is None or not person_id:
+            return None
+        key = (room_id, person_id, asset, name, dates)
+        if key not in self._simulations:
+            portrait, _ = await self._async_fetch_portrait(person_id, asset, fallback=not asset)
+            if portrait is None:
+                return None
+            body = await self.hass.async_add_executor_job(
+                picpak_render.render_door,
+                room.config.name,
+                [(name, portrait.image, portrait.face)],
+                dates,
+                True,
+            )
+            if len(self._simulations) > 24:
+                self._simulations.clear()
+            self._simulations[key] = await self.hass.async_add_executor_job(
+                picpak_render.preview_png, body
+            )
+        return self._simulations[key]
 
     async def async_guest_portrait(self, room_id: str, index: int) -> Portrait | None:
         """Portrait du n-ième invité renseigné de la chambre (1 ou 2)."""
@@ -1025,6 +1115,39 @@ class PicPakPortraitView(HomeAssistantView):
             body=portrait.image,
             content_type=portrait.content_type,
             headers={"Cache-Control": "private, max-age=3600", "X-Portrait-Source": portrait.source},
+        )
+
+
+class PicPakSimulationView(HomeAssistantView):
+    """Simulation du cadre de porte avec une photo candidate (carte de
+    réservation) ; jeton des cadres."""
+
+    url = SIMULATION_URL_PATH
+    name = "api:immich_guest_slideshow:simulation"
+    requires_auth = False
+
+    async def get(self, request: web.Request, room_id: str) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        query = request.query
+        manager: PicPakManager | None = None
+        for runtime in hass.data.get(DOMAIN, {}).values():
+            candidate = getattr(runtime, "picpak", None)
+            if candidate is not None and candidate.check_token(query.get("k")):
+                manager = candidate
+                break
+        if manager is None:
+            return web.Response(status=403)
+        png = await manager.async_simulation(
+            room_id,
+            query.get("p", ""),
+            query.get("a") or None,
+            query.get("n", "")[:40],
+            query.get("d", "")[:60],
+        )
+        if png is None:
+            return web.Response(status=404)
+        return web.Response(
+            body=png, content_type="image/png", headers={"Cache-Control": "private, max-age=600"}
         )
 
 
