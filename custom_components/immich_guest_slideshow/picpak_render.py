@@ -449,13 +449,48 @@ def render_logo(
 # --------------------------------------------------------------------------- #
 # Cadre de la porte : visages des invités pendant le séjour
 # --------------------------------------------------------------------------- #
-def _face_disc(face: bytes | None, name: str, size: int) -> Image.Image:
-    """Visage carré (vignette Immich) ou, à défaut, initiales sur fond noir."""
+# Cadrage « visage entier centré » dans un losange : un rectangle w × h tient
+# dans un losange de diagonale S si w + h <= S. Côté du carré découpé autour du
+# visage = (w + h) × FACE_MARGIN, pour garder front, cheveux et menton ; le
+# centre est remonté d'une fraction de la hauteur du visage (les cheveux).
+FACE_MARGIN = 1.3
+FACE_LIFT = 0.1
+
+
+def face_crop(width: int, height: int, box: Sequence[float]) -> tuple[int, int, int, int]:
+    """Carré (gauche, haut, droite, bas) en pixels, centré sur le visage
+    ``box`` (relatif, 0 à 1), gardé dans l'image : réduit puis décalé s'il le
+    faut (jamais de bande vide). Carnet (``cadre=centre``) envoie déjà un carré
+    à ces proportions : il est alors gardé entier."""
+    x1, y1, x2, y2 = box[0] * width, box[1] * height, box[2] * width, box[3] * height
+    fw, fh = max(x2 - x1, 1.0), max(y2 - y1, 1.0)
+    side = int(min(round((fw + fh) * FACE_MARGIN), width, height))
+    cx = (x1 + x2) / 2
+    cy = (y1 + y2) / 2 - FACE_LIFT * fh
+    left = int(min(max(round(cx - side / 2), 0), width - side))
+    top = int(min(max(round(cy - side / 2), 0), height - side))
+    return left, top, left + side, top + side
+
+
+def _face_disc(
+    face: bytes | None, name: str, size: int, box: Sequence[float] | None = None
+) -> Image.Image:
+    """Visage carré ou, à défaut, initiales sur fond noir.
+
+    ``box`` (portrait Carnet) : visage entier centré, voir :func:`face_crop` ;
+    sans ``box`` (vignette Immich, déjà serrée sur le visage) : image entière.
+    """
     if face:
         try:
             with Image.open(io.BytesIO(face)) as src:
                 img = ImageOps.exif_transpose(src).convert("RGB")
-            img = ImageOps.fit(img, (size, size), Image.Resampling.LANCZOS, centering=(0.5, 0.4))
+            if box is not None:
+                img = img.crop(face_crop(img.width, img.height, box))
+                img = img.resize((size, size), Image.Resampling.LANCZOS)
+            else:
+                img = ImageOps.fit(
+                    img, (size, size), Image.Resampling.LANCZOS, centering=(0.5, 0.4)
+                )
             img = ImageOps.autocontrast(img, cutoff=1)
             return ImageEnhance.Contrast(img).enhance(1.15)
         except OSError:
@@ -542,7 +577,13 @@ def _thick_line(draw: ImageDraw.ImageDraw, pts: list[tuple[float, float]], width
 
 
 def _diamond_face(
-    img: Image.Image, cx: float, cy: float, half: float, face: bytes | None, name: str
+    img: Image.Image,
+    cx: float,
+    cy: float,
+    half: float,
+    face: bytes | None,
+    name: str,
+    box: Sequence[float] | None = None,
 ) -> None:
     """Visage dans le losange du logo, à la place du « PL », bordures du logo."""
     draw = ImageDraw.Draw(img)
@@ -554,7 +595,7 @@ def _diamond_face(
     inner = _INNER * k
     # Visage découpé dans le losange intérieur.
     size = int(2 * inner)
-    portrait = _face_disc(face, name, size)
+    portrait = _face_disc(face, name, size, box)
     mask = Image.new("L", (size, size), 0)
     ImageDraw.Draw(mask).polygon(
         [(size / 2, 0), (size - 1, size / 2), (size / 2, size - 1), (0, size / 2)], fill=255
@@ -582,7 +623,7 @@ def _diamond_face(
 
 def render_door(
     room: str,
-    guests: Sequence[tuple[str, bytes | None]],
+    guests: Sequence[tuple],
     dates: str = "",
     upcoming: bool = False,
 ) -> bytes:
@@ -593,7 +634,9 @@ def render_door(
     visage de chaque invité dans le losange du logo Petit Lecussan, à la place
     du « PL » (un invité : un losange ; deux : deux losanges côte à côte),
     son prénom dessous ; en bas la date prévue.
-    ``guests`` : (prénom, vignette Immich ou ``None`` -> initiales).
+    ``guests`` : (prénom, image ou ``None`` -> initiales[, cadre du visage]).
+    Avec le cadre du visage (portrait Carnet), le visage entier est centré
+    dans le losange ; sans (vignette Immich), l'image remplit le losange.
     """
     img = Image.new("RGB", (FRAME_W, FRAME_H), PALETTE[BLACK])
     draw = ImageDraw.Draw(img)
@@ -608,8 +651,10 @@ def render_door(
     cy = 40 + half
     centers = [FRAME_W / 2 - 96, FRAME_W / 2 + 96] if two else [FRAME_W / 2]
     name_top = cy + half + 8
-    for (name, face), cx in zip(guests, centers, strict=True):
-        _diamond_face(img, cx, cy, half, face, name)
+    for guest, cx in zip(guests, centers, strict=True):
+        name, face = guest[0], guest[1]
+        box = guest[2] if len(guest) > 2 else None
+        _diamond_face(img, cx, cy, half, face, name, box)
         if name:
             _centered(draw, cx, name_top, name, _fit(draw, name, (20, 18, 16, 14), True, 180), PALETTE[WHITE])
     if dates:

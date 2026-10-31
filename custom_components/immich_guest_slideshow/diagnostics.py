@@ -7,9 +7,9 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
 
 from . import ImmichConfigEntry
-from .const import CONF_API_KEY
+from .const import CONF_API_KEY, CONF_CARNET_TOKEN
 
-TO_REDACT = {CONF_API_KEY}
+TO_REDACT = {CONF_API_KEY, CONF_CARNET_TOKEN}
 
 
 async def async_get_config_entry_diagnostics(
@@ -47,7 +47,7 @@ async def async_get_config_entry_diagnostics(
     return {
         "entry": {
             "data": async_redact_data(dict(entry.data), TO_REDACT),
-            "options": dict(entry.options),
+            "options": async_redact_data(dict(entry.options), TO_REDACT),
         },
         "rooms": rooms,
         "picpak": frames,

@@ -34,7 +34,9 @@ async def async_setup_entry(
     """Par chambre : son diaporama et l'aperçu de chacun de ses cadres."""
     runtime = entry.runtime_data
     for room_id, room in runtime.rooms.items():
-        entities: list[ImageEntity] = [ImmichRoomImage(hass, entry, room.coordinator)]
+        entities: list[ImageEntity] = [
+            ImmichRoomImage(hass, entry, room.coordinator, runtime.picpak)
+        ]
         entities.extend(
             PicPakFrameImage(hass, entry, runtime.picpak, frame_key(room_id, slot))
             for slot in room.config.slots
@@ -49,9 +51,14 @@ class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
     _attr_content_type = "image/jpeg"
 
     def __init__(
-        self, hass: HomeAssistant, entry: ImmichConfigEntry, coordinator: RoomCoordinator
+        self,
+        hass: HomeAssistant,
+        entry: ImmichConfigEntry,
+        coordinator: RoomCoordinator,
+        picpak: PicPakManager | None = None,
     ) -> None:
         CoordinatorEntity.__init__(self, coordinator)
+        self._picpak = picpak
         ImageEntity.__init__(self, hass)
         engine = coordinator.engine
         room_id = engine.room_id
@@ -84,7 +91,9 @@ class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, object]:
-        """Pour les cartes : cadrage visages et séjour prévu."""
+        """Pour les cartes : cadrage visages, séjour prévu et portraits des
+        invités (``portraits`` : [{nom, url}], portrait HD de Carnet ou
+        vignette Immich, adresse utilisable telle quelle dans une carte)."""
         data: RoomData | None = self.coordinator.data
         stay = data.stay if data else None
         days = stay.days if stay else None
@@ -99,6 +108,11 @@ class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
             "sejour_dates": stay.label if stay else "",
             "sejour_debut": days[0].isoformat() if days else None,
             "sejour_fin": days[1].isoformat() if days else None,
+            "portraits": (
+                self._picpak.portrait_urls(self.coordinator.engine.room_id)
+                if self._picpak is not None
+                else []
+            ),
         }
 
 
