@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connexion à Immich",
-        "description": "Saisissez l'URL de votre serveur Immich et votre clé API (permissions de lecture des personnes, photos et visages ; albums si vous utilisez la synchronisation). Ajoutez ensuite vos chambres avec « Ajouter une chambre ».",
+        "description": "Saisissez l'URL de votre serveur Immich et votre clé API (permissions de lecture des personnes, photos et visages). Ajoutez ensuite vos chambres avec « Ajouter une chambre ».",
         "data": {
           "url": "URL Immich",
           "api_key": "Clé API"
