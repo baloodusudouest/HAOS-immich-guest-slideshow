@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.3.1 — 2026-10-31
+
+Robustesse — aucun changement de réglage nécessaire.
+
+- **Cadres à jour après une liaison** : lier une personne (Réparations ou
+  `link_person`), retirer une liaison ou lancer `refresh` refait aussi la
+  sélection des cadres PicPak. Avant, seul le diaporama changeait : les cadres
+  gardaient leur sélection tant que les invités ne changeaient pas.
+- **Immich injoignable** : une recherche en échec n'est plus mémorisée comme
+  « aucune photo ». Les cadres réessaient à leur réveil suivant, le diaporama
+  au bout de 5 minutes, et aucun faux signalement « introuvable / peu de
+  photos » n'est créé pendant la panne.
+- **Calendrier illisible** (au démarrage notamment) : la chambre est
+  considérée libre au lieu d'un faux séjour en cours.
+- **Homonymes** : plus de repli sur le « premier résultat approchant ».
+  Un nom sans correspondance exacte (avec ou sans accents), ou porté par
+  plusieurs personnes, est signalé dans **Réparations** pour être lié à la
+  bonne fiche (la liaison est mémorisée).
+- **URL des cadres** : les réglages PicPak refusent une adresse de base qui
+  donnerait une URL de plus de 128 caractères (limite du firmware).
+
 ## 2.3.0 — 2026-10-31
 
 - **Suppression de l'action `sync_albums`** et des albums Immich par lit

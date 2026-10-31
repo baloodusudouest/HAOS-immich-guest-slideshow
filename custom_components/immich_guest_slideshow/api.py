@@ -171,7 +171,11 @@ class ImmichApiClient:
         3. Correspondance sans accents (« Chloe » ↔ « Chloé »).
         4. Si la recherche accentuée ne renvoie rien, nouvel essai avec le
            nom désaccentué (l'index de recherche Immich peut être strict).
-        5. Repli final : premier résultat approchant.
+        5. 2.3.1 : PLUS de repli sur le « premier résultat approchant » (une
+           autre personne pouvait être retenue sans prévenir). Pas de
+           correspondance exacte, ou plusieurs personnes portant exactement
+           ce nom (homonymes) → ``None`` : l'intégration signale alors la
+           personne dans Réparations pour la lier à la bonne fiche.
 
         Returns:
             Le dictionnaire de la personne Immich, ou ``None`` si introuvable.
@@ -193,16 +197,31 @@ class ImmichApiClient:
         wanted = _fold(query)
         wanted_no_accents = folded_query
 
-        # 1) Correspondance exacte (accents inclus)
-        for person in results:
-            if _fold(str(person.get("name", ""))) == wanted:
-                return person
-        # 2) Correspondance insensible aux accents
-        for person in results:
-            if _fold_no_accents(str(person.get("name", ""))) == wanted_no_accents:
-                return person
-        # 3) Repli : premier résultat approchant
-        return results[0]
+        # 1) Correspondance exacte (accents inclus), puis 2) sans accents.
+        #    Une seule personne doit correspondre : des homonymes exacts sont
+        #    ambigus et doivent être départagés par une liaison.
+        for fold, target in (
+            (_fold, wanted),
+            (_fold_no_accents, wanted_no_accents),
+        ):
+            matches = [p for p in results if fold(str(p.get("name", ""))) == target]
+            if len(matches) == 1:
+                return matches[0]
+            if len(matches) > 1:
+                _LOGGER.warning(
+                    "Plusieurs personnes Immich s'appellent « %s » (%d) : "
+                    "liaison nécessaire (Réparations)",
+                    query,
+                    len(matches),
+                )
+                return None
+        _LOGGER.debug(
+            "Aucune personne Immich ne s'appelle exactement « %s » "
+            "(%d résultat(s) approchant(s) ignorés)",
+            query,
+            len(results),
+        )
+        return None
 
     async def async_search_assets(
         self,

@@ -110,7 +110,8 @@
     },
     "error": {
       "invalid_quiet": "Expected format: HH:MM-HH:MM, e.g. 01:00-07:00",
-      "invalid_base_url": "The URL must start with http:// or https://"
+      "invalid_base_url": "The URL must start with http:// or https://",
+      "base_url_too_long": "The full frame URL would exceed 128 characters (frame limit): shorten the address"
     }
   },
   "entity": {
@@ -138,7 +139,7 @@
         "step": {
           "confirm": {
             "title": "Link {name} to an Immich person",
-            "description": "\"{name}\" (room: {rooms}) matches nobody in Immich. In Immich, open the person's page and copy its URL (http://…/people/…) or just the ID, then paste it here. The link is remembered.",
+            "description": "\"{name}\" (room: {rooms}) matches nobody in Immich (or several people share this exact name). In Immich, open the person's page and copy its URL (http://…/people/…) or just the ID, then paste it here. The link is remembered.",
             "data": {
               "person_id": "Immich person ID or URL"
             }
