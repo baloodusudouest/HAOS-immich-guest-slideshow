@@ -151,8 +151,9 @@ class ProblemReporter:
             )
         elif problem.kind == KIND_NOT_FOUND:
             message = (
-                f"La personne « {problem.name} » est introuvable dans Immich "
-                f"(chambre : {rooms}). Ouvrez Paramètres → Système → "
+                f"La personne « {problem.name} » est introuvable dans Immich, ou "
+                f"plusieurs personnes portent ce nom (chambre : {rooms}). "
+                "Ouvrez Paramètres → Système → "
                 "Réparations pour la lier à son identifiant Immich."
             )
         else:

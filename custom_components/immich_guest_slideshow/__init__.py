@@ -152,7 +152,9 @@ class ImmichRuntimeData:
         for room_id, room in self.rooms.items():
             if room.coordinator is not None:
                 await room.coordinator.async_rebuild_and_refresh()
-            self.picpak.async_room_changed(room_id, guests_changed=False)
+            # 2.3.1 : force=True — une liaison change les photos sans changer
+            # l'empreinte des cadres
+            self.picpak.async_room_changed(room_id, guests_changed=False, force=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -454,7 +456,9 @@ def _async_register_services(hass: HomeAssistant, runtime: ImmichRuntimeData) ->
     async def _handle_refresh(call: ServiceCall) -> None:
         for room in _rooms(call):
             await room.coordinator.async_rebuild_and_refresh()
-            picpak.async_room_changed(room.config.room_id, guests_changed=False)
+            picpak.async_room_changed(
+                room.config.room_id, guests_changed=False, force=True
+            )
 
     async def _handle_next(call: ServiceCall) -> None:
         for room in _rooms(call):

@@ -15,6 +15,9 @@ from .stay import FREE, StayStatus, StayTracker
 
 _LOGGER = logging.getLogger(__name__)
 
+# 2.3.1 : délai avant un nouvel essai quand Immich était injoignable.
+RETRY_MINUTES = 5
+
 
 @dataclass(frozen=True)
 class RoomData:
@@ -55,6 +58,9 @@ class RoomCoordinator(DataUpdateCoordinator[RoomData]):
             timedelta(hours=rebuild_hours) if rebuild_hours > 0 else None
         )
         self._last_rebuild = dt_util.utcnow()
+        # 2.3.1 : sélection incomplète (Immich injoignable) → nouvel essai
+        # après ce délai, sans attendre le rebuild périodique.
+        self._retry_delay = timedelta(minutes=RETRY_MINUTES)
         super().__init__(
             hass,
             _LOGGER,
@@ -63,10 +69,10 @@ class RoomCoordinator(DataUpdateCoordinator[RoomData]):
         )
 
     async def _async_update_data(self) -> RoomData:
+        elapsed = dt_util.utcnow() - self._last_rebuild
         if (
-            self._rebuild_interval is not None
-            and dt_util.utcnow() - self._last_rebuild >= self._rebuild_interval
-        ):
+            self._rebuild_interval is not None and elapsed >= self._rebuild_interval
+        ) or (self.engine.incomplete and elapsed >= self._retry_delay):
             _LOGGER.debug("[%s] Rebuild périodique", self.engine.room_id)
             await self.engine.async_rebuild()
             self._last_rebuild = dt_util.utcnow()

@@ -349,7 +349,9 @@ class StayTracker:
                 )
             except Exception as err:  # noqa: BLE001 - calendrier indisponible
                 _LOGGER.warning("Calendrier %s illisible: %s", self.calendar, err)
-                return self._cached[0] if self._cached else NO_CALENDAR
+                # 2.3.1 : sans état connu, chambre considérée LIBRE (jamais
+                # un faux séjour) ; rien n'est mis en cache, on relira.
+                return self._cached[0] if self._cached else StayStatus(active=False)
             status = stay_status(events, now, self._arrival_hour, self._closed_at())
         self._cached = (status, now)
         return status
