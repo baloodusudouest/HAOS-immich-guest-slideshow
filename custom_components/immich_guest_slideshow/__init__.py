@@ -15,6 +15,10 @@ Immich par lit. Ils servaient au circuit manuel (téléchargement de l'album
 puis envoi par l'app PicPak) ; tous les cadres sont désormais flashés
 open-PicPak et reçoivent leurs images directement. La clé API n'a plus
 besoin des permissions sur les albums.
+
+v2.4.0 (31/10/2026) : portraits HD de Carnet (option « Carnet ») pour le
+cadre de porte et l'attribut ``portraits`` des dashboards, repli sur la
+vignette Immich.
 """
 from __future__ import annotations
 
@@ -52,6 +56,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.util import slugify
 
 from .api import ImmichApiClient, ImmichApiError, extract_person_uuid, normalize_name
+from .carnet import CarnetClient
 from .const import (
     ATTR_BASE_URL,
     ATTR_BED,
@@ -61,6 +66,8 @@ from .const import (
     CONF_API_KEY,
     CONF_ARRIVAL_HOUR,
     CONF_CACHE_SIZE,
+    CONF_CARNET_TOKEN,
+    CONF_CARNET_URL,
     CONF_INTERVAL,
     CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
@@ -114,7 +121,7 @@ from .const import (
 )
 from .coordinator import RoomCoordinator
 from .person_links import PersonLinks
-from .picpak import PicPakFrameView, PicPakManager, PicPakSettings
+from .picpak import PicPakFrameView, PicPakManager, PicPakPortraitView, PicPakSettings
 from .problems import ProblemReporter
 from .room import RoomConfig, RoomRuntime
 from .slideshow import SlideshowEngine
@@ -306,7 +313,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
     links = PersonLinks.create(hass, entry.entry_id)
     await links.async_load()
     reporter = ProblemReporter(hass, entry.entry_id)
-    picpak = PicPakManager(hass, entry.entry_id, api, _picpak_settings(entry))
+    carnet_url = str(opts.get(CONF_CARNET_URL) or "").strip()
+    carnet = (
+        CarnetClient(session, carnet_url, str(opts.get(CONF_CARNET_TOKEN) or ""))
+        if carnet_url
+        else None
+    )
+    picpak = PicPakManager(hass, entry.entry_id, api, _picpak_settings(entry), carnet)
     await picpak.async_load()
     runtime = ImmichRuntimeData(
         api=api, links=links, reporter=reporter, picpak=picpak, entry_id=entry.entry_id
@@ -350,6 +363,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
 
     if not hass.data.get(_PICPAK_VIEW_KEY):
         hass.http.register_view(PicPakFrameView())
+        hass.http.register_view(PicPakPortraitView())
         hass.data[_PICPAK_VIEW_KEY] = True
 
     entry.runtime_data = runtime

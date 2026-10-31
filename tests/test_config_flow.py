@@ -91,7 +91,7 @@ async def test_options_flow_general(hass: HomeAssistant) -> None:
     entry.add_to_hass(hass)
     result = await hass.config_entries.options.async_init(entry.entry_id)
     assert result["type"] is FlowResultType.MENU
-    assert result["menu_options"] == ["general", "picpak"]
+    assert result["menu_options"] == ["general", "picpak", "carnet"]
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {"next_step_id": "general"}
     )
@@ -169,3 +169,46 @@ async def test_reconfigure_room_keeps_its_id(hass: HomeAssistant) -> None:
     sub = entry.subentries[sub.subentry_id]
     assert sub.data[ROOM_ID] == "chambre_d_ami"  # entités et URL conservées
     assert sub.title == "Chambre des amis" and sub.data[ROOM_FRAMES] == 1
+
+
+async def test_options_flow_carnet(hass: HomeAssistant) -> None:
+    """Carnet : adresse + jeton vérifiés ; « Bearer » retiré ; vide = sans Carnet."""
+    from custom_components.immich_guest_slideshow.carnet import CarnetAuthError
+    from custom_components.immich_guest_slideshow.const import (
+        CONF_CARNET_TOKEN,
+        CONF_CARNET_URL,
+    )
+
+    entry = make_entry([])
+    entry.add_to_hass(hass)
+
+    async def _open():
+        result = await hass.config_entries.options.async_init(entry.entry_id)
+        return await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "carnet"}
+        )
+
+    target = "custom_components.immich_guest_slideshow.config_flow.CarnetClient.async_validate"
+    result = await _open()
+    assert result["step_id"] == "carnet"
+    with patch(target, side_effect=CarnetAuthError("401")):
+        bad = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_CARNET_URL: "http://192.168.1.90:8096", CONF_CARNET_TOKEN: "faux"},
+        )
+    assert bad["errors"] == {"base": "carnet_invalid_auth"}
+    with patch(target, return_value=None):
+        ok = await hass.config_entries.options.async_configure(
+            bad["flow_id"],
+            {CONF_CARNET_URL: "http://192.168.1.90:8096/", CONF_CARNET_TOKEN: "Bearer abc"},
+        )
+    assert ok["type"] is FlowResultType.CREATE_ENTRY
+    assert ok["data"][CONF_CARNET_URL] == "http://192.168.1.90:8096"
+    assert ok["data"][CONF_CARNET_TOKEN] == "abc"
+
+    result = await _open()
+    off = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_CARNET_URL: "", CONF_CARNET_TOKEN: ""}
+    )
+    assert off["type"] is FlowResultType.CREATE_ENTRY
+    assert off["data"][CONF_CARNET_URL] == "" and off["data"][CONF_CARNET_TOKEN] == ""

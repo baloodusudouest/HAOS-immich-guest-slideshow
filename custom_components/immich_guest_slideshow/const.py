@@ -33,6 +33,14 @@ DEFAULT_ARRIVAL_HOUR: Final = 9
 MAX_ASSETS_PER_SEARCH: Final = 400
 
 # --------------------------------------------------------------------------- #
+# Carnet (contacts, NAS) : portraits HD des invités (2.4.0, facultatif)
+# --------------------------------------------------------------------------- #
+CONF_CARNET_URL: Final = "carnet_url"      # ex. http://192.168.1.90:8096 (vide = sans Carnet)
+CONF_CARNET_TOKEN: Final = "carnet_token"  # CARNET_HA_TOKEN de la stack Carnet
+
+DEFAULT_CARNET_URL: Final = ""
+
+# --------------------------------------------------------------------------- #
 # Options des cadres PicPak
 # --------------------------------------------------------------------------- #
 CONF_PICPAK_INTERVAL: Final = "picpak_interval"    # minutes entre deux photos
@@ -89,6 +97,10 @@ LEGACY_PICPAK_ARRIVAL_HOUR: Final = "picpak_arrival_hour"
 PICPAK_URL_PATH: Final = "/api/immich_guest_slideshow/picpak/{room_id}/{slot}"
 PICPAK_URL_MAX: Final = 128  # taille max d'une URL dans la NVS du cadre
 DOOR_SLOT: Final = "porte"
+
+# Portraits des invités pour les dashboards (même jeton que les cadres) ;
+# ``{index}`` = 1 ou 2, rang de l'invité renseigné.
+PORTRAIT_URL_PATH: Final = "/api/immich_guest_slideshow/portrait/{room_id}/{index}"
 
 PICPAK_MANUFACTURER: Final = "PicPak (firmware open-PicPak)"
 PICPAK_MODEL: Final = "PicPak 4,2″ BWRY"

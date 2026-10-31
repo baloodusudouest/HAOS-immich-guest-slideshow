@@ -31,14 +31,19 @@ from homeassistant.helpers.selector import (
     NumberSelectorConfig,
     NumberSelectorMode,
     TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 from homeassistant.util import slugify
 
 from .api import ImmichApiClient, ImmichAuthError, ImmichConnectionError
+from .carnet import CarnetAuthError, CarnetClient, CarnetError, clean_token
 from .const import (
     CONF_API_KEY,
     CONF_ARRIVAL_HOUR,
     CONF_CACHE_SIZE,
+    CONF_CARNET_TOKEN,
+    CONF_CARNET_URL,
     CONF_INTERVAL,
     CONF_MIN_PHOTOS,
     CONF_PERMANENT_PERSONS,
@@ -165,7 +170,9 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        return self.async_show_menu(step_id="init", menu_options=["general", "picpak"])
+        return self.async_show_menu(
+            step_id="init", menu_options=["general", "picpak", "carnet"]
+        )
 
     async def async_step_general(
         self, user_input: dict[str, Any] | None = None
@@ -291,6 +298,53 @@ class ImmichGuestSlideshowOptionsFlow(OptionsFlow):
             }
         )
         return self.async_show_form(step_id="picpak", data_schema=schema, errors=errors)
+
+
+    async def async_step_carnet(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Carnet (facultatif) : portraits HD des invités pour le cadre de
+        porte et les dashboards. Adresse vide = vignettes Immich."""
+        errors: dict[str, str] = {}
+        opts = self.options
+        if user_input is not None:
+            url = (user_input.get(CONF_CARNET_URL) or "").strip().rstrip("/")
+            token = clean_token(user_input.get(CONF_CARNET_TOKEN))
+            if not url:
+                opts[CONF_CARNET_URL] = ""
+                opts[CONF_CARNET_TOKEN] = ""
+                return self.async_create_entry(title="", data=opts)
+            if not url.startswith(("http://", "https://")):
+                errors[CONF_CARNET_URL] = "invalid_base_url"
+            elif not token:
+                errors[CONF_CARNET_TOKEN] = "carnet_token_missing"
+            else:
+                client = CarnetClient(async_get_clientsession(self.hass), url, token)
+                try:
+                    await client.async_validate()
+                except CarnetAuthError:
+                    errors["base"] = "carnet_invalid_auth"
+                except CarnetError:
+                    errors["base"] = "carnet_cannot_connect"
+                else:
+                    opts[CONF_CARNET_URL] = url
+                    opts[CONF_CARNET_TOKEN] = token
+                    return self.async_create_entry(title="", data=opts)
+            opts = {**opts, CONF_CARNET_URL: url}
+
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_CARNET_URL,
+                    description={"suggested_value": opts.get(CONF_CARNET_URL, "")},
+                ): str,
+                vol.Optional(
+                    CONF_CARNET_TOKEN,
+                    description={"suggested_value": opts.get(CONF_CARNET_TOKEN, "")},
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+            }
+        )
+        return self.async_show_form(step_id="carnet", data_schema=schema, errors=errors)
 
 
 # --------------------------------------------------------------------------- #
