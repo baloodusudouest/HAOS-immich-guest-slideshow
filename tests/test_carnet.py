@@ -42,14 +42,16 @@ from .common import (
 
 CALENDAR = "calendar.chambre_test"
 CARNET = "http://192.168.1.90:8096"
-# Portrait Carnet « centre » : visage entier au milieu (côté = 1,3 × (w + h)).
-CARNET_BOX = (0.31, 0.35, 0.69, 0.73)
+# Portrait Carnet « centre » : visage entier au milieu (côté = 1,65 × (w + h)).
+CARNET_BOX = (0.35, 0.39, 0.65, 0.70)
 
 
-def _portrait_jpeg(box=CARNET_BOX, size: int = 800) -> bytes:
+def _portrait_jpeg(box=CARNET_BOX, size: int = 800, height: int | None = None) -> bytes:
     """Fond gris, « visage » rouge dans ``box`` : on peut vérifier le cadrage."""
-    img = Image.new("RGB", (size, size), (120, 120, 120))
-    x1, y1, x2, y2 = (int(v * size) for v in box)
+    height = height or size
+    img = Image.new("RGB", (size, height), (120, 120, 120))
+    x1, x2 = int(box[0] * size), int(box[2] * size)
+    y1, y2 = int(box[1] * height), int(box[3] * height)
     img.paste((220, 30, 30), (x1, y1, x2, y2))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=95)
@@ -62,7 +64,7 @@ def _portrait_jpeg(box=CARNET_BOX, size: int = 800) -> bytes:
 def test_clean_token_and_face_header() -> None:
     assert clean_token("Bearer abc ") == "abc"
     assert clean_token(" abc") == "abc"
-    assert parse_face_box("0.3100,0.3500,0.6900,0.7300") == CARNET_BOX
+    assert parse_face_box("0.3500,0.3900,0.6500,0.7000") == CARNET_BOX
     assert parse_face_box("-1,0,2,1") == (0.0, 0.0, 1.0, 1.0)  # bornée
     for bad in (None, "", "1,2,3", "a,b,c,d", "0.5,0.5,0.5,0.9"):
         assert parse_face_box(bad) is None
@@ -73,7 +75,7 @@ async def test_client_portrait(hass: HomeAssistant, aioclient_mock: AiohttpClien
     aioclient_mock.get(
         f"{CARNET}/ha/portrait?immich=p1&cadre=centre",
         content=jpeg,
-        headers={"Content-Type": "image/jpeg", "X-Visage": "0.31,0.35,0.69,0.73"},
+        headers={"Content-Type": "image/jpeg", "X-Visage": "0.35,0.39,0.65,0.70"},
     )
     aioclient_mock.get(f"{CARNET}/ha/portrait?immich=p2&cadre=centre", status=404)
     aioclient_mock.get(f"{CARNET}/ha/portrait?immich=p3&cadre=centre", status=401)
@@ -101,22 +103,23 @@ def test_face_crop_keeps_the_whole_face_centred() -> None:
     left, top, right, bottom = pr.face_crop(600, 600, CARNET_BOX)
     assert right - left == bottom - top >= 580
     # Grande photo : carré centré, assez grand pour le visage entier.
-    box = (0.40, 0.30, 0.60, 0.56)  # 1200 × 900
-    left, top, right, bottom = pr.face_crop(1200, 900, box)
+    box = (0.45, 0.40, 0.55, 0.53)  # 2400 × 1800
+    left, top, right, bottom = pr.face_crop(2400, 1800, box)
     side = right - left
     assert side == bottom - top
-    fw, fh = 0.2 * 1200, 0.26 * 900
-    assert fw + fh < side  # un rectangle w × h tient dans le losange si w + h <= côté
-    assert abs((left + right) / 2 - 600) <= 1
-    assert (top + bottom) / 2 < (0.30 + 0.56) / 2 * 900  # remonté (cheveux)
+    fw, fh = 0.1 * 2400, 0.13 * 1800
+    assert (fw + fh) * 1.5 < side  # large marge : cheveux, menton et cou
+    assert abs((left + right) / 2 - 1200) <= 1
+    assert (top + bottom) / 2 < (0.40 + 0.53) / 2 * 1800  # remonté (cheveux)
     # Visage près du bord : carré réduit et décalé, jamais hors de l'image.
     left, top, right, bottom = pr.face_crop(800, 800, (0.05, 0.02, 0.6, 0.7))
     assert left >= 0 and top >= 0 and right <= 800 and bottom <= 800
 
 
 def test_door_card_with_carnet_portrait_shows_the_whole_face() -> None:
-    portrait = _portrait_jpeg()
-    with_box = pr.render_door("Chambre d'ami", [("Paul", portrait, CARNET_BOX)], "sam. 31 oct.")
+    box = (0.45, 0.40, 0.55, 0.53)
+    portrait = _portrait_jpeg(box, 1600, 1200)  # grande photo, visage petit
+    with_box = pr.render_door("Chambre d'ami", [("Paul", portrait, box)], "sam. 31 oct.")
     without = pr.render_door("Chambre d'ami", [("Paul", portrait)], "sam. 31 oct.")
     assert with_box != without
     img = Image.open(io.BytesIO(pr.preview_png(with_box))).convert("RGB")
@@ -146,13 +149,21 @@ class FakeCarnet:
     def __init__(self, session: Any, url: str, token: str) -> None:
         self.url = url
 
-    async def async_get_portrait(self, person_id: str):
-        FakeCarnet.calls.append(person_id)
+    async def async_get_portrait(self, person_id: str, asset: str | None = None):
+        FakeCarnet.calls.append(person_id if not asset else f"{person_id}:{asset}")
         if FakeCarnet.down:
             raise CarnetError("injoignable")
         if person_id == PEOPLE["Carla Dupont"]:
-            return _portrait_jpeg(), CARNET_BOX
+            if asset in (None, "c1"):
+                return _portrait_jpeg(), CARNET_BOX
+            if asset in ("c2", "c3"):
+                return _portrait_jpeg((0.4, 0.4, 0.6, 0.6)), (0.4, 0.4, 0.6, 0.6)
         return None
+
+    async def async_get_candidates(self, person_id: str, count: int = 3):
+        if person_id == PEOPLE["Carla Dupont"]:
+            return ["c1", "c2", "c3"][:count], "c1"
+        return [], None
 
 
 def _calendar(hass: HomeAssistant, events: list[dict]) -> None:
@@ -254,3 +265,56 @@ async def test_without_carnet_only_immich(hass: HomeAssistant) -> None:
     portrait = await entry.runtime_data.picpak.async_portrait(PEOPLE["Carla Dupont"])
     assert portrait is not None and portrait.source == "immich" and portrait.face is None
     assert FakeCarnet.calls == []
+
+
+async def test_portrait_choices_simulation_and_choice(
+    hass: HomeAssistant, hass_client_no_auth
+) -> None:
+    """Carte de réservation : 3 simulations du cadre de porte, puis choix
+    mémorisé pour les cadres (et gardé après redémarrage)."""
+    FakeImmich.reset()
+    FakeCarnet.calls, FakeCarnet.down = [], False
+    entry = await _setup(hass)
+    resp = await hass.services.async_call(
+        DOMAIN,
+        "portrait_choices",
+        {"room": CALENDAR, "name": "Carla Dupont (2026-10-31 → 2026-11-01)",
+         "arrivee": "2026-10-31", "depart": "2026-11-01"},
+        blocking=True,
+        return_response=True,
+    )
+    assert resp["person_id"] == PEOPLE["Carla Dupont"]
+    assert [c["asset"] for c in resp["choix"]] == ["c1", "c2", "c3"]
+    assert resp["choix_actuel"] is None and not any(c["choisi"] for c in resp["choix"])
+    client = await hass_client_no_auth()
+    images = []
+    for c in resp["choix"]:
+        got = await client.get(c["image"])
+        assert got.status == 200 and got.content_type == "image/png"
+        images.append(await got.read())
+    assert images[0] != images[1]  # cadrages différents
+    bad = resp["choix"][0]["image"].replace("k=", "k=faux")
+    assert (await client.get(bad)).status == 403
+
+    manager = entry.runtime_data.picpak
+    before = await manager.async_portrait(PEOPLE["Carla Dupont"])
+    await hass.services.async_call(
+        DOMAIN, "portrait_choose",
+        {"person_id": resp["person_id"], "asset": "c2"}, blocking=True,
+    )
+    assert manager.portrait_choices == {PEOPLE["Carla Dupont"]: "c2"}
+    after = await manager.async_portrait(PEOPLE["Carla Dupont"])
+    assert after.face == (0.4, 0.4, 0.6, 0.6) and after.image != before.image
+    again = await hass.services.async_call(
+        DOMAIN, "portrait_choices", {"room": "chambre_test", "name": "Carla Dupont"},
+        blocking=True, return_response=True,
+    )
+    assert again["choix_actuel"] == "c2"
+    assert manager._data_to_save()["portrait_choices"] == {PEOPLE["Carla Dupont"]: "c2"}
+
+    # Retour à l'automatique (par nom et chambre)
+    await hass.services.async_call(
+        DOMAIN, "portrait_choose", {"room": CALENDAR, "name": "Carla Dupont", "asset": ""},
+        blocking=True,
+    )
+    assert manager.portrait_choices == {}
