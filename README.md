@@ -58,6 +58,19 @@ locale de Home Assistant vue par les cadres, bouton de réinitialisation
 (`input_button.reinitialiser_chambre_hote`), et nombre de photos par cadre
 pour une chambre **sans** calendrier.
 
+### Carnet (Configurer → Carnet (portraits HD)) — facultatif
+
+Adresse de [Carnet](https://github.com/baloodusudouest/carnet) (ex.
+`http://192.168.1.90:8096`) et son jeton Home Assistant (`CARNET_HA_TOKEN`,
+avec ou sans « Bearer »), vérifiés à l'enregistrement. Carnet fournit pour
+chaque invité lié à Immich le **portrait HD** choisi dans son onglet Photos HD
+(visage grand, net, de face), découpé avec le visage entier au milieu
+(`/ha/portrait?immich=…&cadre=centre`). Il remplace la vignette Immich sur le
+cadre de porte et dans l'attribut `portraits` des dashboards. Sans portrait HD
+pour un invité, ou si Carnet ne répond pas, la vignette Immich est utilisée
+(nouvel essai au réveil suivant). Portraits gardés 6 h. Adresse vide = sans
+Carnet.
+
 ## Le séjour
 
 D'après le calendrier de la chambre :
@@ -102,6 +115,19 @@ Attributs utiles aux cartes :
 | `sejour` | `en_cours`, `programme` ou `libre` |
 | `sejour_dates` | `ven. 23 → sam. 24 oct.` |
 | `sejour_debut`, `sejour_fin` | `2026-10-23`, `2026-10-24` (premier et dernier jour) |
+| `portraits` | `[{"nom": "Paul Martin", "url": "/api/immich_guest_slideshow/portrait/chambre_d_ami/1?k=…&v=…"}]` : portrait de chaque invité (Carnet, sinon vignette Immich), adresse utilisable telle quelle dans une carte |
+
+Portraits des invités (carte Markdown) :
+
+```yaml
+type: markdown
+content: >-
+  {% for x in state_attr('image.immich_chambre_d_ami', 'portraits') or [] %}
+  <img src="{{ x.url }}" width="120" style="border-radius:50%"> {% endfor %}
+```
+
+L'adresse contient le jeton des cadres (comme leurs URL) : tout compte qui lit
+les états de Home Assistant peut l'utiliser.
 
 Carte avec cadrage sur les visages ([card-mod](https://github.com/thomasloven/lovelace-card-mod)) :
 
@@ -143,7 +169,7 @@ l'écran, recadrée sur le visage de l'invité (permission « face.read »).
 | Chambre | Écran |
 |---|---|
 | libre | logo + nom de la chambre |
-| séjour programmé | « **Bientôt dans la chambre d'ami** », le visage de chaque invité dans le losange du logo Petit Lecussan (à la place du « PL », mêmes bordures), les prénoms dessous, la date prévue |
+| séjour programmé | « **Bientôt dans la chambre d'ami** », le visage de chaque invité dans le losange du logo Petit Lecussan (à la place du « PL », mêmes bordures), les prénoms dessous, la date prévue ; visage = portrait HD de Carnet (visage entier centré) s'il est configuré, sinon vignette Immich |
 | séjour en cours | la même carte avec « **Bienvenue dans la chambre d'ami** » |
 
 ### Mise en place

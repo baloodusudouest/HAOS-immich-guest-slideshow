@@ -77,7 +77,8 @@
         "title": "Immich Guest Slideshow",
         "menu_options": {
           "general": "Réglages généraux",
-          "picpak": "Cadres PicPak"
+          "picpak": "Cadres PicPak",
+          "carnet": "Carnet (portraits HD)"
         }
       },
       "general": {
@@ -106,12 +107,23 @@
           "picpak_base_url": "URL locale de Home Assistant vue par les cadres (vide = automatique)",
           "picpak_reset_button": "Bouton de réinitialisation de la maison (fin des séjours en cours)"
         }
+      },
+      "carnet": {
+        "title": "Carnet : portraits HD des invités",
+        "description": "Facultatif. Carnet (contacts, NAS) fournit pour chaque invité lié à Immich le portrait HD choisi dans l'onglet Photos HD. Il remplace la vignette Immich sur le cadre de porte (visage entier centré dans le losange) et dans l'attribut « portraits » de image.immich_<chambre>. Sans portrait HD, ou si Carnet ne répond pas, la vignette Immich est utilisée. Adresse vide = sans Carnet.",
+        "data": {
+          "carnet_url": "Adresse de Carnet (ex. http://192.168.1.90:8096)",
+          "carnet_token": "Jeton Home Assistant de Carnet (CARNET_HA_TOKEN, avec ou sans « Bearer »)"
+        }
       }
     },
     "error": {
       "invalid_quiet": "Format attendu : HH:MM-HH:MM, ex. 01:00-07:00",
       "invalid_base_url": "L'URL doit commencer par http:// ou https://",
-      "base_url_too_long": "L'URL complète d'un cadre dépasserait 128 caractères (limite du cadre) : raccourcissez l'adresse"
+      "base_url_too_long": "L'URL complète d'un cadre dépasserait 128 caractères (limite du cadre) : raccourcissez l'adresse",
+      "carnet_token_missing": "Indiquez le jeton CARNET_HA_TOKEN",
+      "carnet_invalid_auth": "Carnet refuse ce jeton (ou CARNET_HA_TOKEN n'est pas défini dans sa stack)",
+      "carnet_cannot_connect": "Carnet ne répond pas à cette adresse"
     }
   },
   "entity": {

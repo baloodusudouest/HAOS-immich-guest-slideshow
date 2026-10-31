@@ -77,7 +77,8 @@
         "title": "Immich Guest Slideshow",
         "menu_options": {
           "general": "General settings",
-          "picpak": "PicPak frames"
+          "picpak": "PicPak frames",
+          "carnet": "Carnet (HD portraits)"
         }
       },
       "general": {
@@ -106,12 +107,23 @@
           "picpak_base_url": "Local Home Assistant URL as seen by frames (empty = automatic)",
           "picpak_reset_button": "House reset button (ends ongoing stays)"
         }
+      },
+      "carnet": {
+        "title": "Carnet: guests' HD portraits",
+        "description": "Optional. Carnet (contacts, NAS) provides, for each guest linked to Immich, the HD portrait chosen in its HD photos tab. It replaces the Immich thumbnail on the door frame (whole face centred in the diamond) and in the \"portraits\" attribute of image.immich_<room>. Without an HD portrait, or when Carnet is down, the Immich thumbnail is used. Empty address = no Carnet.",
+        "data": {
+          "carnet_url": "Carnet address (e.g. http://192.168.1.90:8096)",
+          "carnet_token": "Carnet Home Assistant token (CARNET_HA_TOKEN, with or without \"Bearer\")"
+        }
       }
     },
     "error": {
       "invalid_quiet": "Expected format: HH:MM-HH:MM, e.g. 01:00-07:00",
       "invalid_base_url": "The URL must start with http:// or https://",
-      "base_url_too_long": "The full frame URL would exceed 128 characters (frame limit): shorten the address"
+      "base_url_too_long": "The full frame URL would exceed 128 characters (frame limit): shorten the address",
+      "carnet_token_missing": "Enter the CARNET_HA_TOKEN token",
+      "carnet_invalid_auth": "Carnet rejects this token (or CARNET_HA_TOKEN is not set in its stack)",
+      "carnet_cannot_connect": "Carnet does not answer at this address"
     }
   },
   "entity": {

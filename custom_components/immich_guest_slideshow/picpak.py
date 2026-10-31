@@ -25,6 +25,11 @@ Deux emplacements par chambre :
   dans le losange du logo Petit Lecussan, prénoms, date prévue ;
 - séjour en cours : la même carte avec « Bienvenue dans la chambre … ».
 
+Visages (2.4.0) : portrait HD de Carnet quand il est configuré (meilleure
+photo du contact, cadre du visage fourni : visage entier centré dans le
+losange), sinon vignette de la personne dans Immich. Les mêmes portraits sont
+servis aux dashboards (attribut ``portraits`` de ``image.immich_<chambre>``).
+
 Le séjour va du jour d'arrivée à 9 h (réglable) jusqu'au lendemain du dernier
 jour à 00:01 (voir :mod:`.stay`). Un écran inchangé n'est jamais redessiné :
 le cadre compare l'image reçue à celle qu'il affiche.
@@ -32,6 +37,7 @@ le cadre compare l'image reçue à celle qu'il affiche.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import logging
 import os
@@ -51,6 +57,7 @@ from homeassistant.util import dt as dt_util
 
 from . import framing, picpak_render
 from .api import ImmichApiClient, ImmichApiError
+from .carnet import CarnetClient, CarnetError, FaceBox
 from .const import (
     DOMAIN,
     DOOR_SLOT,
@@ -59,6 +66,7 @@ from .const import (
     PICPAK_MODEL,
     PICPAK_URL_MAX,
     PICPAK_URL_PATH,
+    PORTRAIT_URL_PATH,
     SIGNAL_PICPAK_UPDATE,
 )
 from .slideshow import first_name, frames_guests
@@ -93,6 +101,32 @@ MAX_ASSET_TRIES = 3
 # Contenu affiché (FrameState.shown) quand ce n'est pas une photo.
 LOGO = "__logo__"
 DOOR = "__porte__"
+
+# Portraits des invités gardés en mémoire (Carnet les change au plus une fois
+# par mois ; un nouveau choix manuel apparaît donc dans les 6 h).
+PORTRAIT_TTL_S = 6 * 3600
+
+
+@dataclass(frozen=True)
+class Portrait:
+    """Visage d'un invité : image, cadre du visage (0 à 1) si connu, source."""
+
+    image: bytes
+    face: FaceBox | None
+    source: str  # « carnet » ou « immich »
+
+    @property
+    def digest(self) -> str:
+        return hashlib.sha1(self.image).hexdigest()[:12]
+
+    @property
+    def content_type(self) -> str:
+        head = self.image[:12]
+        if head.startswith(b"\x89PNG"):
+            return "image/png"
+        if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+            return "image/webp"
+        return "image/jpeg"
 
 
 def frame_key(room_id: str, slot: str | int) -> str:
@@ -194,10 +228,12 @@ class PicPakManager:
         entry_id: str,
         api: ImmichApiClient,
         settings: PicPakSettings,
+        carnet: CarnetClient | None = None,
     ) -> None:
         self.hass = hass
         self.entry_id = entry_id
         self._api = api
+        self._carnet = carnet
         self.settings = settings
         # Même fichier qu'en v1 : le jeton (donc l'URL des cadres) est conservé.
         self._store: Store[dict[str, Any]] = Store(
@@ -223,7 +259,9 @@ class PicPakManager:
         self._logo_sig: tuple | None = None
         self._logos: dict[tuple[str, str], bytes] = {}  # (logo, légende) -> tampon
         self._door_cards: dict[str, tuple[tuple, bytes]] = {}
-        self._person_faces: dict[str, bytes | None] = {}
+        # Portraits : person_id -> (instant de lecture, portrait).
+        self._portraits: dict[str, tuple[datetime, Portrait]] = {}
+        self._carnet_down_logged = False
 
     # ------------------------------------------------------------------ #
     # Cycle de vie
@@ -640,19 +678,75 @@ class PicPakManager:
             )
         return self._logos[cache_key]
 
-    async def _async_person_face(self, person_id: str | None) -> bytes | None:
-        """Vignette Immich d'une personne (mise en cache), ``None`` si absente."""
+    async def async_portrait(self, person_id: str | None) -> Portrait | None:
+        """Visage d'une personne : portrait HD de Carnet s'il existe, sinon
+        vignette Immich. Gardé 6 h ; une panne n'est pas mémorisée (nouvel
+        essai au prochain réveil)."""
         if not person_id:
             return None
-        if person_id not in self._person_faces:
+        now = dt_util.utcnow()
+        cached = self._portraits.get(person_id)
+        if cached and (now - cached[0]).total_seconds() < PORTRAIT_TTL_S:
+            return cached[1]
+        portrait: Portrait | None = None
+        carnet_ok = True
+        if self._carnet is not None:
             try:
-                self._person_faces[person_id] = await self._api.async_get_person_thumbnail(
-                    person_id
-                )
+                found = await self._carnet.async_get_portrait(person_id)
+            except CarnetError as err:
+                carnet_ok = False
+                if not self._carnet_down_logged:
+                    _LOGGER.warning(
+                        "Carnet injoignable (%s) : vignettes Immich en attendant", err
+                    )
+                    self._carnet_down_logged = True
+            else:
+                self._carnet_down_logged = False
+                if found is not None:
+                    portrait = Portrait(found[0], found[1], "carnet")
+        if portrait is None:
+            try:
+                thumb = await self._api.async_get_person_thumbnail(person_id)
             except ImmichApiError as err:
                 _LOGGER.debug("PicPak : vignette de %s indisponible: %s", person_id, err)
-                return None  # nouvel essai au prochain réveil
-        return self._person_faces[person_id]
+                return cached[1] if cached else None
+            if not thumb:
+                return cached[1] if cached else None
+            portrait = Portrait(thumb, None, "immich")
+        if carnet_ok:
+            self._portraits[person_id] = (now, portrait)
+        return portrait
+
+    async def async_guest_portrait(self, room_id: str, index: int) -> Portrait | None:
+        """Portrait du n-ième invité renseigné de la chambre (1 ou 2)."""
+        room = self.rooms.get(room_id)
+        if room is None:
+            return None
+        guests = room.engine.get_guests()
+        if not 1 <= index <= len(guests):
+            return None
+        return await self.async_portrait(await room.engine.async_person_id(guests[index - 1]))
+
+    def portrait_urls(self, room_id: str) -> list[dict[str, str]]:
+        """Dashboards : nom et adresse du portrait de chaque invité renseigné.
+
+        Adresse relative (même origine que le dashboard), protégée par le
+        jeton des cadres ; ``v`` change avec l'invité pour vider le cache du
+        navigateur."""
+        room = self.rooms.get(room_id)
+        if room is None or not self.token:
+            return []
+        out = []
+        for index, guest in enumerate(room.engine.get_guests()[:2], start=1):
+            version = hashlib.sha1(guest.encode()).hexdigest()[:8]
+            path = PORTRAIT_URL_PATH.format(room_id=room_id, index=index)
+            out.append(
+                {
+                    "nom": room.engine.display_name(guest) or guest,
+                    "url": f"{path}?k={self.token}&v={version}",
+                }
+            )
+        return out
 
     async def _async_door_card(self, room_id: str, stay: StayStatus) -> bytes:
         """Carte de la porte : « Bientôt / Bienvenue dans la chambre … »,
@@ -667,16 +761,26 @@ class PicPakManager:
         if not guests:
             guests = [(n, None) for n in self._names(room, stay, first=True)]
         upcoming = not stay.active
-        signature = (tuple(guests), stay.label, room.config.name, upcoming)
+        portraits = [await self.async_portrait(pid) for _, pid in guests]
+        signature = (
+            tuple(guests),
+            stay.label,
+            room.config.name,
+            upcoming,
+            tuple(p.digest if p else None for p in portraits),
+        )
         cached = self._door_cards.get(room_id)
         if cached and cached[0] == signature:
             return cached[1]
-        faces = [(name, await self._async_person_face(pid)) for name, pid in guests]
+        faces = [
+            (name, p.image if p else None, p.face if p else None)
+            for (name, _), p in zip(guests, portraits, strict=True)
+        ]
         body = await self.hass.async_add_executor_job(
             picpak_render.render_door, room.config.name, faces, stay.label, upcoming
         )
-        # Une vignette manquante sera retentée au prochain réveil.
-        if all(face is not None for _, face in faces):
+        # Un visage manquant sera retenté au prochain réveil.
+        if all(p is not None for p in portraits):
             self._door_cards[room_id] = (signature, body)
         return body
 
@@ -890,6 +994,37 @@ class PicPakFrameView(HomeAssistantView):
                 "X-Next-Wake-Seconds": str(reply.next_wake_s),
                 "Cache-Control": "no-store",
             },
+        )
+
+
+class PicPakPortraitView(HomeAssistantView):
+    """Portraits des invités pour les dashboards (jeton des cadres, comme les
+    cadres eux-mêmes : une balise ``<img>`` ne peut pas s'authentifier)."""
+
+    url = PORTRAIT_URL_PATH
+    name = "api:immich_guest_slideshow:portrait"
+    requires_auth = False
+
+    async def get(self, request: web.Request, room_id: str, index: str) -> web.Response:
+        hass: HomeAssistant = request.app["hass"]
+        token = request.query.get("k")
+        manager: PicPakManager | None = None
+        for runtime in hass.data.get(DOMAIN, {}).values():
+            candidate = getattr(runtime, "picpak", None)
+            if candidate is not None and candidate.check_token(token):
+                manager = candidate
+                break
+        if manager is None:
+            return web.Response(status=403)
+        if not index.isdigit():
+            return web.Response(status=404)
+        portrait = await manager.async_guest_portrait(room_id, int(index))
+        if portrait is None:
+            return web.Response(status=404)
+        return web.Response(
+            body=portrait.image,
+            content_type=portrait.content_type,
+            headers={"Cache-Control": "private, max-age=3600", "X-Portrait-Source": portrait.source},
         )
 
 
