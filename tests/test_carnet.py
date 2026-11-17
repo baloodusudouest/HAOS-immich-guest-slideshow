@@ -231,15 +231,20 @@ async def test_door_frame_uses_carnet_then_immich(
     portraits = state.attributes["portraits"]
     assert [p["nom"] for p in portraits] == ["Carla Dupont", "Bruno"]
     token = entry.runtime_data.picpak.token
+    cle = entry.runtime_data.picpak.portrait_key("chambre_test", 1)
+    assert token not in portraits[0]["url"]           # 2.5.1 : le jeton maître des cadres n'est plus exposé
     assert portraits[0]["url"].startswith(
-        f"/api/immich_guest_slideshow/portrait/chambre_test/1?k={token}&v="
+        f"/api/immich_guest_slideshow/portrait/chambre_test/1?k={cle}&v="
     )
     got = await client.get(portraits[0]["url"])
     assert got.status == 200 and got.headers["X-Portrait-Source"] == "carnet"
     assert got.content_type == "image/jpeg" and await got.read() == _portrait_jpeg()
     got = await client.get(portraits[1]["url"])
     assert got.headers["X-Portrait-Source"] == "immich"
-    bad = portraits[0]["url"].replace(f"k={token}", "k=faux")
+    bad = portraits[0]["url"].replace(f"k={cle}", "k=faux")
+    assert (await client.get(bad)).status == 403
+    autre = portraits[0]["url"].replace("/chambre_test/1?", "/chambre_test/2?")   # la clé d'une adresse n'en ouvre pas une autre
+    assert (await client.get(autre)).status == 403
     assert (await client.get(bad)).status == 403
     missing = f"/api/immich_guest_slideshow/portrait/chambre_test/3?k={token}"
     assert (await client.get(missing)).status == 404
@@ -318,3 +323,11 @@ async def test_portrait_choices_simulation_and_choice(
         blocking=True,
     )
     assert manager.portrait_choices == {}
+
+
+async def test_simulation_refuse_un_identifiant_avec_chemin(hass, hass_client) -> None:
+    """2.5.1 (audit du 17/11/2026) : « p » ne peut plus glisser un chemin dans l'adresse appelée chez Immich."""
+    from custom_components.immich_guest_slideshow.picpak import _IDENTIFIANT
+    assert _IDENTIFIANT.match("1234abcd-0000-4000-8000-000000000001")
+    for mauvais in ("../../api/users", "x/thumbnail?size=", "a.b", ""):
+        assert not _IDENTIFIANT.match(mauvais)

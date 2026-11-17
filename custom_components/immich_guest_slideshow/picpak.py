@@ -41,6 +41,7 @@ import hashlib
 import hmac
 import logging
 import os
+import re
 import secrets
 from urllib.parse import urlencode
 from dataclasses import dataclass, field
@@ -85,6 +86,7 @@ if TYPE_CHECKING:
     from .room import RoomRuntime
 
 _LOGGER = logging.getLogger(__name__)
+_IDENTIFIANT = re.compile(r"^[A-Za-z0-9_-]{1,64}$")   # 2.5.1 : ni « / », ni « . », ni « ? » dans l'adresse appelée chez Immich
 
 STORAGE_VERSION = 1
 SAVE_DELAY = 15
@@ -348,7 +350,18 @@ class PicPakManager:
 
     def check_token(self, token: str | None) -> bool:
         """Comparaison à temps constant du jeton d'accès."""
-        return bool(token) and hmac.compare_digest(str(token), self.token)
+        return bool(token) and hmac.compare_digest(str(token).encode(), self.token.encode())
+
+    def portrait_key(self, room_id: str, index: int | str) -> str:
+        """2.5.1 : jeton propre à une adresse de portrait, tiré du jeton des cadres. L'attribut « portraits »
+        (lisible par tout compte de HA) ne montre plus le jeton maître des cadres."""
+        return hmac.new(self.token.encode(), f"portrait|{room_id}|{index}".encode(), hashlib.sha256).hexdigest()[:32]
+
+    def check_portrait(self, token: str | None, room_id: str, index: str) -> bool:
+        return bool(token) and (
+            hmac.compare_digest(str(token).encode(), self.portrait_key(room_id, index).encode())
+            or self.check_token(token)
+        )
 
     # ------------------------------------------------------------------ #
     # Sélection des photos (par chambre)
@@ -833,7 +846,7 @@ class PicPakManager:
             out.append(
                 {
                     "nom": room.engine.display_name(guest) or guest,
-                    "url": f"{path}?k={self.token}&v={version}",
+                    "url": f"{path}?k={self.portrait_key(room_id, index)}&v={version}",
                 }
             )
         return out
@@ -1101,7 +1114,7 @@ class PicPakPortraitView(HomeAssistantView):
         manager: PicPakManager | None = None
         for runtime in hass.data.get(DOMAIN, {}).values():
             candidate = getattr(runtime, "picpak", None)
-            if candidate is not None and candidate.check_token(token):
+            if candidate is not None and candidate.check_portrait(token, room_id, index):
                 manager = candidate
                 break
         if manager is None:
@@ -1137,10 +1150,14 @@ class PicPakSimulationView(HomeAssistantView):
                 break
         if manager is None:
             return web.Response(status=403)
+        # 2.5.1 : seuls des identifiants simples passent dans l'adresse appelée chez Immich
+        personne, photo = query.get("p", ""), query.get("a") or None
+        if not _IDENTIFIANT.match(personne) or (photo and not _IDENTIFIANT.match(photo)):
+            return web.Response(status=400)
         png = await manager.async_simulation(
             room_id,
-            query.get("p", ""),
-            query.get("a") or None,
+            personne,
+            photo,
             query.get("n", "")[:40],
             query.get("d", "")[:60],
         )

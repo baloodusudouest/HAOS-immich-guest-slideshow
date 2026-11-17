@@ -49,6 +49,8 @@ class ImmichRoomImage(CoordinatorEntity[RoomCoordinator], ImageEntity):
 
     _attr_has_entity_name = True
     _attr_content_type = "image/jpeg"
+    # 2.5.1 : les adresses à jeton des portraits n'entrent pas dans l'historique (recorder)
+    _unrecorded_attributes = frozenset({"portraits"})
 
     def __init__(
         self,

@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.5.1 — 17 novembre 2026 (corrections de l'audit)
+- **Sécurité** : l'attribut `portraits` des entités image (lisible par tout compte de Home Assistant) contenait le jeton maître des cadres PicPak, gardé en plus dans l'historique. Chaque adresse de portrait porte maintenant sa propre clé, tirée du jeton des cadres, qui n'ouvre que ce portrait ; l'attribut n'entre plus dans l'historique (recorder). Les cadres eux-mêmes ne changent pas.
+- **Sécurité** : la vue de simulation du cadre de porte refuse un identifiant de personne ou de photo qui contient autre chose que lettres, chiffres, `-` et `_` (on pouvait glisser un chemin dans l'adresse appelée chez Immich avec la clé du NAS).
+- Jetons comparés en octets. Les tests (146) tournent maintenant sur GitHub à chaque envoi.
+- Noms, adresses et identifiants réels retirés du dépôt et de son historique (règle des dépôts publics).
+
 ## 2.5.0 — 2026-10-31
 
 Choix de la photo du cadre de porte depuis la carte de réservation.
