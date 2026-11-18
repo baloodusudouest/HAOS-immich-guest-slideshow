@@ -44,6 +44,7 @@ from homeassistant.core import (
     callback,
 )
 from homeassistant.exceptions import (
+    ConfigEntryAuthFailed,
     ConfigEntryNotReady,
     HomeAssistantError,
     ServiceValidationError,
@@ -60,7 +61,13 @@ from homeassistant.helpers.start import async_at_started
 from homeassistant.helpers.storage import Store
 from homeassistant.util import slugify
 
-from .api import ImmichApiClient, ImmichApiError, extract_person_uuid, normalize_name
+from .api import (
+    ImmichApiClient,
+    ImmichApiError,
+    ImmichAuthError,
+    extract_person_uuid,
+    normalize_name,
+)
 from .carnet import CarnetClient, CarnetError
 from .const import (
     ATTR_ARRIVAL,
@@ -315,6 +322,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ImmichConfigEntry) -> bo
     api = ImmichApiClient(entry.data[CONF_URL], entry.data[CONF_API_KEY], session)
     try:
         await api.async_validate_connection()
+    except ImmichAuthError as err:
+        # 2.5.2 : clé refusée → Home Assistant propose de la ressaisir (reauth)
+        raise ConfigEntryAuthFailed(err) from err
     except ImmichApiError as err:
         raise ConfigEntryNotReady(err) from err
 

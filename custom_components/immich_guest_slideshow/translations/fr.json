@@ -8,6 +8,13 @@
           "url": "URL Immich",
           "api_key": "Clé API"
         }
+      },
+      "reauth_confirm": {
+        "title": "Clé API Immich refusée",
+        "description": "Le serveur Immich {url} refuse la clé API. Saisissez une nouvelle clé (permissions de lecture des personnes, photos et visages).",
+        "data": {
+          "api_key": "Clé API"
+        }
       }
     },
     "error": {
@@ -16,7 +23,8 @@
       "unknown": "Erreur inattendue"
     },
     "abort": {
-      "already_configured": "Ce serveur Immich est déjà configuré"
+      "already_configured": "Ce serveur Immich est déjà configuré",
+      "reauth_successful": "Clé API mise à jour"
     }
   },
   "config_subentries": {

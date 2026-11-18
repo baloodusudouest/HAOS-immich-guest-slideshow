@@ -1,6 +1,8 @@
 """Configuration de l'intégration Immich Guest Slideshow (v2).
 
 - **Entrée** : serveur Immich (URL + clé API, validées par un vrai appel).
+- **Réauthentification** (2.5.2) : clé refusée par Immich → nouvelle clé
+  demandée, validée, puis l'entrée est rechargée.
 - **Options** : réglages généraux (propriétaires, diaporama, heure
   d'arrivée) et réglages des cadres PicPak.
 - **Sous-entrées « Chambre »** : une ligne par chambre, avec son propre bouton
@@ -10,6 +12,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
@@ -136,6 +139,51 @@ class ImmichGuestSlideshowConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
+        )
+
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """2.5.2 : Immich refuse la clé API (ConfigEntryAuthFailed)."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Nouvelle clé API pour le même serveur, validée par un vrai appel."""
+        entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            client = ImmichApiClient(
+                entry.data[CONF_URL],
+                user_input[CONF_API_KEY],
+                async_get_clientsession(self.hass),
+            )
+            try:
+                await client.async_validate_connection()
+            except ImmichAuthError:
+                errors["base"] = "invalid_auth"
+            except ImmichConnectionError:
+                errors["base"] = "cannot_connect"
+            except Exception:
+                _LOGGER.exception("Erreur inattendue lors de la réauthentification")
+                errors["base"] = "unknown"
+            else:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={CONF_API_KEY: user_input[CONF_API_KEY]},
+                )
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_API_KEY): TextSelector(
+                        TextSelectorConfig(type=TextSelectorType.PASSWORD)
+                    )
+                }
+            ),
+            description_placeholders={"url": entry.data[CONF_URL]},
+            errors=errors,
         )
 
     @classmethod

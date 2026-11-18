@@ -8,6 +8,13 @@
           "url": "Immich URL",
           "api_key": "API key"
         }
+      },
+      "reauth_confirm": {
+        "title": "Immich API key refused",
+        "description": "The Immich server {url} refused the API key. Enter a new key (read access to people, assets and faces).",
+        "data": {
+          "api_key": "API key"
+        }
       }
     },
     "error": {
@@ -16,7 +23,8 @@
       "unknown": "Unexpected error"
     },
     "abort": {
-      "already_configured": "This Immich server is already configured"
+      "already_configured": "This Immich server is already configured",
+      "reauth_successful": "API key updated"
     }
   },
   "config_subentries": {

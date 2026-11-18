@@ -1,5 +1,9 @@
 # Changelog
 
+## 2.5.2 — 18 novembre 2026 (constats moyens de l'audit)
+- **M50** : quand Immich refuse la clé API au démarrage, Home Assistant propose maintenant de la ressaisir (réauthentification : « Clé API Immich refusée ») ; la nouvelle clé est vérifiée par un vrai appel au même serveur, enregistrée, puis l'intégration est rechargée. Avant, l'intégration restait en « nouvel essai » sans fin.
+- **M50** : les diagnostics ne contiennent plus aucun nom : ni invités (remplacés par des nombres), ni propriétaires, ni titres des séjours, ni état nommé des cadres (`guest`, `guest_name`, `signature`). La clé API et le jeton de Carnet restaient déjà masqués. La CI (tests à chaque envoi) existe depuis la 2.5.1.
+
 ## 2.5.1 — 17 novembre 2026 (corrections de l'audit)
 - **Sécurité** : l'attribut `portraits` des entités image (lisible par tout compte de Home Assistant) contenait le jeton maître des cadres PicPak, gardé en plus dans l'historique. Chaque adresse de portrait porte maintenant sa propre clé, tirée du jeton des cadres, qui n'ouvre que ce portrait ; l'attribut n'entre plus dans l'historique (recorder). Les cadres eux-mêmes ne changent pas.
 - **Sécurité** : la vue de simulation du cadre de porte refuse un identifiant de personne ou de photo qui contient autre chose que lettres, chiffres, `-` et `_` (on pouvait glisser un chemin dans l'adresse appelée chez Immich avec la clé du NAS).
